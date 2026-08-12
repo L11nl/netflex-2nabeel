@@ -94,7 +94,7 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
             
     return None, last_error
 
-# --- دالة أتمتة التسجيل ---
+# --- دالة أتمتة التسجيل (5 خطوات) ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
         with sync_playwright() as p:
@@ -117,32 +117,36 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             netflix_page.goto("https://www.netflix.com/", timeout=30000, wait_until="domcontentloaded")
             netflix_page.wait_for_timeout(3000)
             
-            # --- الخطوة 2: كتابة الإيميل والضغط على Enter ---
+            # --- الخطوة 2: كتابة الإيميل ---
             bot.send_message(chat_id, f"⏳ الخطوة 2: جاري كتابة الإيميل `{email}`...")
             email_input = netflix_page.locator("input[name='email'], input[type='email'], [placeholder*='Email']").first
             email_input.fill(email)
             netflix_page.wait_for_timeout(1000)
             send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: تم إدخال الإيميل بنجاح.")
             
-            # --- الخطوة 3: الانتقال باستخدام زر Enter (تخطي مشاكل الزر الأحمر) ---
-            bot.send_message(chat_id, "⏳ الخطوة 3: جاري الضغط على (Enter) للانتقال وتخطي صفحات (Send / Resend)...")
-            
-            # 🔥 الحل الجذري: الضغط على Enter في الكيبورد لتخطي الصفحة الأولى رغماً عن نتفلكس
+            # --- الخطوة 3: الانتقال باستخدام زر Enter ---
+            bot.send_message(chat_id, "⏳ الخطوة 3: جاري الضغط على (Enter) لبدء التسجيل...")
             try:
                 email_input.press("Enter")
-                netflix_page.wait_for_timeout(5000) # انتظار تحميل الصفحة التالية
             except:
                 pass
                 
-            # محاولة احتياطية في حال لم ينفع الـ Enter
+            # محاولة احتياطية إذا لم ينفع الـ Enter
             if netflix_page.url == "https://www.netflix.com/" or netflix_page.url == "https://www.netflix.com/iq-en/":
                 try:
                     try_btn = netflix_page.locator(':is(button, a):has-text("Days for USD 0"), :is(button, a):has-text("Try"), :is(button, a):has-text("Get Started")').first
                     if try_btn.is_visible(timeout=2000):
                         try_btn.click(timeout=10000)
-                        netflix_page.wait_for_timeout(5000)
                 except:
                     pass
+            
+            # --- الخطوة 4: انتظار انتهاء التحميل (السبينر) وفحص الأزرار ---
+            bot.send_message(chat_id, "⏳ الخطوة 4: انتظار انتهاء دائرة التحميل للبحث عن أزرار (إرسال الرابط/متابعة)...")
+            
+            # 🛑 انتظار إجباري طويل (10 ثوانٍ) لضمان اختفاء التحميل وظهور الصفحة الجديدة 🛑
+            netflix_page.wait_for_timeout(10000) 
+            
+            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 4: هذه هي الصفحة التي ظهرت بعد انتهاء التحميل.")
             
             # حلقة لتخطي باقي الصفحات (Send Link و Resend Link)
             for i in range(1, 6):
@@ -150,37 +154,40 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     # التحقق أولاً إذا وصلنا للهدف (Resend Link)
                     resend_btn = netflix_page.locator(':is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
                     if resend_btn.is_visible(timeout=3000):
-                        bot.send_message(chat_id, "✅ ممتاز! وصلنا لصفحة (Resend Link)، نتفلكس أرسلت الرسالة بنجاح. ننتقل الآن للإيميل...")
+                        bot.send_message(chat_id, "✅ ممتاز! وصلنا لصفحة (Resend Link)، نتفلكس أرسلت الرسالة بنجاح.")
                         break
                         
                     # إذا لم نصل، نبحث عن أزرار (Send Link أو Next)
                     next_btn = netflix_page.locator(':is(button, a):has-text("Send Link"), :is(button, a):has-text("إرسال الرابط"), :is(button, a):has-text("Next"), :is(button, a):has-text("Continue"), :is(button, a):has-text("التالي"), :is(button, a):has-text("متابعة")').first
                     
                     if next_btn.is_visible(timeout=4000):
+                        bot.send_message(chat_id, f"⏳ جاري الضغط على زر المتابعة/إرسال الرابط (تخطي صفحة {i})...")
                         next_btn.click(timeout=10000)
-                        netflix_page.wait_for_timeout(5000)
-                        send_progress_photo(netflix_page, chat_id, f"📸 تم الضغط وتخطي الصفحة (رقم {i})...")
+                        
+                        # انتظار طويل آخر بعد الضغط لضمان تحميل الصفحة التالية
+                        netflix_page.wait_for_timeout(8000)
+                        send_progress_photo(netflix_page, chat_id, f"📸 نتيجة الضغط على الزر وتخطي الصفحة (رقم {i}).")
                     else:
                         break 
                 except Exception:
                     break
                     
-            send_progress_photo(netflix_page, chat_id, "📸 نهاية الخطوة 3: شكل الصفحة النهائي في نتفلكس.")
-            
             try:
                 context.storage_state(path=session_file)
                 netflix_page.screenshot(path=image_file, full_page=True, timeout=20000)
             except:
                 pass
             
-            # --- الخطوة 4: فتح موقع البريد ---
-            bot.send_message(chat_id, "⏳ الخطوة 4: جاري الانتقال لموقع البريد لاستلام الرسالة...")
+            # --- الخطوة 5: الانتقال لموقع البريد ---
+            bot.send_message(chat_id, "⏳ الخطوة 5: جاري الانتقال لموقع البريد لاستلام الرسالة من نتفلكس...")
             email_page = context.new_page()
             
             email_page.goto(f"https://generator.email/inbox9/{email}", timeout=30000, wait_until="domcontentloaded")
-            email_page.wait_for_timeout(8000) # وقت انتظار وصول الرسالة
             
-            send_progress_photo(email_page, chat_id, "📸 الخطوة 4: شكل صندوق البريد الوارد بعد الانتظار.")
+            # رفعنا وقت الانتظار إلى 12 ثانية لضمان وصول رسالة نتفلكس
+            email_page.wait_for_timeout(12000) 
+            
+            send_progress_photo(email_page, chat_id, "📸 الخطوة 5: شكل صندوق البريد الوارد بعد الانتظار لوصول الرسالة.")
             
             links = email_page.evaluate("""() => {
                 return Array.from(document.querySelectorAll('a')).map(a => a.href);
