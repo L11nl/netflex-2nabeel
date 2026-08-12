@@ -29,13 +29,18 @@ bot = telebot.TeleBot(BOT_TOKEN)
 def is_admin(user_id):
     return user_id == ALLOWED_USER_ID
 
+# 🔹 متغيرات حالة المستخدم (بما فيها نظام الانتظار التفاعلي) 🔹
 USER_STATE = {
     "is_pinned": False,
     "pinned_session": "pinned_session.json",
     "pinned_image": "pinned_image.png",
     "temp_session": "temp_session.json",
     "temp_image": "temp_image.png",
-    "email_length": 5  
+    "email_length": 5,
+    "waiting_for": None, # 'phone' أو 'otp'
+    "input_data": None,
+    "input_event": threading.Event(),
+    "change_phone": False
 }
 
 def generate_random_email(length):
@@ -62,6 +67,17 @@ def send_progress_photo(page, chat_id, caption):
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
     except Exception:
         bot.send_message(chat_id, f"{caption}\n\n*(⚠️ مستمرون...)*", parse_mode="Markdown")
+
+# --- معالجة رسائل المستخدم (رقم الهاتف والكود) ---
+@bot.message_handler(func=lambda msg: USER_STATE["waiting_for"] in ["phone", "otp"])
+def handle_interactive_input(message):
+    if not is_admin(message.from_user.id):
+        return
+    # حفظ ما كتبه المستخدم (رقم أو كود)
+    USER_STATE["input_data"] = message.text.strip()
+    # إعطاء إشارة خضراء لمتصفح Playwright ليكمل عمله
+    USER_STATE["input_event"].set()
+    bot.send_message(message.chat.id, "✅ تم استلام الإدخال، جاري المتابعة في المتصفح...")
 
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=3):
     for attempt in range(1, max_retries + 1):
@@ -100,11 +116,10 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
             
     return None, "فشل الاتصال بالبروكسي."
 
-# --- دالة الأتمتة (مثبتة على المسار الناجح فقط) ---
+# --- دالة الأتمتة الشاملة (بما فيها المرحلة الثانية التفاعلية) ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
         with sync_playwright() as p:
-            # استخدام Firefox المثبت نجاحه
             browser = p.firefox.launch(
                 headless=True,
                 proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
@@ -125,7 +140,6 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             # --- الخطوة 1: الفتح ---
             bot.send_message(chat_id, "⏳ جاري تنفيذ المسار الناجح (فايرفوكس المخفي)...")
             safely_goto(netflix_page, "https://www.netflix.com/login")
-            send_progress_photo(netflix_page, chat_id, "📸 تم فتح صفحة نتفلكس.")
             
             # --- الخطوة 2: الإيميل ---
             try:
@@ -152,13 +166,10 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 except: pass
                 
             netflix_page.wait_for_timeout(7000)
-            send_progress_photo(netflix_page, chat_id, "📸 الصفحة بعد إدخال الإيميل.")
             
-            # معالجة الخطأ الأحمر إن ظهر
             try:
                 error_msg = netflix_page.locator('text="Something went wrong"').first
                 if error_msg.is_visible(timeout=3000):
-                    bot.send_message(chat_id, "⚠️ ظهر الخطأ الأحمر، جاري تحديث الصفحة للمحاولة مرة أخرى...")
                     netflix_page.reload(timeout=60000, wait_until="domcontentloaded")
                     netflix_page.wait_for_timeout(5000)
             except:
@@ -167,15 +178,12 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             # --- الخطوة 3: التحقق من النجاح وتخطي الصفحات ---
             for i in range(1, 5):
                 try:
-                    # 🔥 تم إضافة الكلمات الجديدة من صورتك للتعرف على النجاح فوراً 🔥
                     success_target = netflix_page.locator(':is(:text("Tap the link in your email")), :is(:text("resend it")), :is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
                     
                     if success_target.is_visible(timeout=4000):
-                        bot.send_message(chat_id, "✅ ممتاز! وصلنا لصفحة (Tap the link in your email)، وتم إرسال الرسالة بنجاح.")
-                        send_progress_photo(netflix_page, chat_id, "📸 صورة صفحة النجاح النهائية.")
-                        break # نكسر الحلقة للذهاب للبريد
+                        bot.send_message(chat_id, "✅ ممتاز! تم إرسال رسالة إنشاء الحساب بنجاح.")
+                        break 
                         
-                    # إذا طلب الإيميل مجدداً
                     try:
                         email_input_again = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                         if email_input_again.is_visible(timeout=2000) and not email_input_again.input_value():
@@ -184,22 +192,19 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                             netflix_page.wait_for_timeout(1000)
                     except: pass
                     
-                    # الضغط على زر المتابعة إن وجد
                     next_btn = netflix_page.locator(':is(button, a):has-text("Send Link"), :is(button, a):has-text("إرسال الرابط"), :is(button, a):has-text("Next"), :is(button, a):has-text("Continue"), :is(button, a):has-text("التالي"), :is(button, a):has-text("متابعة")').first
                     
                     if next_btn.is_visible(timeout=4000):
                         next_btn.click(timeout=10000)
                         netflix_page.wait_for_timeout(6000)
-                        send_progress_photo(netflix_page, chat_id, f"📸 تخطي صفحة فرعية...")
                     else:
                         break 
                 except Exception:
                     break
             
             # --- الخطوة 4: صندوق البريد ---
-            bot.send_message(chat_id, "⏳ ننتقل الآن للبريد الوارد لانتظار الرسالة...")
+            bot.send_message(chat_id, "⏳ ننتقل للبريد لاستخراج رابط (إكمال التسجيل)...")
             
-            # نعود لكروم في البريد لسرعته
             chrome_browser = p.chromium.launch(
                 headless=True,
                 proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
@@ -211,22 +216,163 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             safely_goto(email_page, f"https://generator.email/inbox9/{email}", timeout=60000)
             email_page.wait_for_timeout(12000) 
             
-            send_progress_photo(email_page, chat_id, "📸 صندوق البريد بعد الانتظار.")
-            
             links = email_page.evaluate("""() => {
                 return Array.from(document.querySelectorAll('a')).map(a => a.href);
             }""")
+            
             netflix_links = list(set([l for l in links if 'netflix.com' in l and 'nflx' not in l]))
             
-            try:
-                text_content = email_page.locator("body").inner_text()
-                extracted_text = text_content[:500] + "..."
-            except:
-                extracted_text = "تعذر استخراج النص."
+            # البحث عن الرابط المطلوب إكمال التسجيل به
+            epr_link = None
+            for link in netflix_links:
+                if 'epr' in link or 'code=' in link:
+                    epr_link = link
+                    break
+            
+            if not epr_link:
+                browser.close()
+                chrome_browser.close()
+                return True, {"links": netflix_links, "text": "لم يتم العثور على رابط epr."}
 
+            bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط في المتصفح...")
+            
+            # -------------------------------------------------------------
+            # 🔥 المرحلة الثانية: إكمال التسجيل وإضافة فاتورة الهاتف 🔥
+            # -------------------------------------------------------------
+            signup_page = context.new_page()
+            apply_stealth(signup_page)
+            safely_goto(signup_page, epr_link)
+            
+            # 1. تخطي صفحات البداية (Finish Sign-up) أو الضغط على Next
+            for i in range(1, 3):
+                try:
+                    finish_btn = signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("إكمال التسجيل"), :is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
+                    if finish_btn.is_visible(timeout=4000):
+                        finish_btn.click(timeout=10000)
+                        signup_page.wait_for_timeout(4000)
+                    else:
+                        signup_page.keyboard.press("Enter")
+                        signup_page.wait_for_timeout(3000)
+                except:
+                    signup_page.keyboard.press("Enter")
+                    signup_page.wait_for_timeout(3000)
+
+            send_progress_photo(signup_page, chat_id, "📸 الصفحة قبل اختيار خطة الدفع.")
+
+            # 2. اختيار فاتورة الهاتف (Add to mobile bill)
+            bot.send_message(chat_id, "⏳ جاري اختيار (إضافة إلى فاتورة الهاتف المحمول)...")
+            try:
+                # نبحث عن الخانة باللغتين
+                mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
+                mobile_bill_option.click(timeout=10000)
+                signup_page.wait_for_timeout(4000)
+                
+                # قد نحتاج لضغط "التالي" بعد اختيار الوسيلة
+                next_btn2 = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
+                if next_btn2.is_visible(timeout=3000):
+                    next_btn2.click()
+                    signup_page.wait_for_timeout(4000)
+            except Exception:
+                signup_page.keyboard.press("Enter")
+                signup_page.wait_for_timeout(3000)
+
+            # 3. حلقة تفاعلية لرقم الهاتف و OTP
+            while True:
+                send_progress_photo(signup_page, chat_id, "📸 صفحة إدخال رقم الهاتف.")
+                
+                # طلب رقم الهاتف من المستخدم
+                bot.send_message(chat_id, "📱 **مطلوب رقم الهاتف:**\n\nأرسل رقم الهاتف الآن في رسالة عادية (البوت سينتظرك لمدة 3 دقائق)...", parse_mode="Markdown")
+                
+                # تهيئة حالة الانتظار
+                USER_STATE["waiting_for"] = "phone"
+                USER_STATE["input_data"] = None
+                USER_STATE["input_event"].clear()
+                USER_STATE["change_phone"] = False
+                
+                # توقيف السكربت هنا حتى تصل الرسالة (أو يمر 3 دقائق)
+                if not USER_STATE["input_event"].wait(timeout=180):
+                    browser.close()
+                    chrome_browser.close()
+                    return False, "انتهى وقت الانتظار لرقم الهاتف (3 دقائق)."
+                    
+                phone_num = USER_STATE["input_data"]
+                USER_STATE["waiting_for"] = None # إنهاء حالة الانتظار
+                
+                # تعبئة الرقم والضغط على التحقق
+                bot.send_message(chat_id, f"⏳ جاري إدخال الرقم `{phone_num}` والموافقة على الشروط...")
+                try:
+                    phone_input = signup_page.locator('input[type="tel"], input[name="phoneNumber"]').first
+                    phone_input.fill(phone_num)
+                    signup_page.wait_for_timeout(1000)
+                    
+                    # تحديد مربع I agree
+                    agree_checkbox = signup_page.locator('input[type="checkbox"]').first
+                    agree_checkbox.check(force=True)
+                    signup_page.wait_for_timeout(1000)
+                    
+                    # الضغط على Verify
+                    verify_btn = signup_page.locator(':is(button, a):has-text("Verify Phone Number"), :is(button, a):has-text("التحقق")').first
+                    verify_btn.click(timeout=10000)
+                    signup_page.wait_for_timeout(6000)
+                except Exception as e:
+                    pass
+
+                # 4. انتظار كود الـ OTP
+                send_progress_photo(signup_page, chat_id, "📸 صفحة إدخال الكود (OTP).")
+                
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("🔄 تغيير رقم الهاتف", callback_data="change_phone_number"))
+                bot.send_message(chat_id, "🔢 **مطلوب كود التفعيل:**\n\nأرسل الكود (4 أرقام) في رسالة عادية الآن...", reply_markup=markup, parse_mode="Markdown")
+                
+                USER_STATE["waiting_for"] = "otp"
+                USER_STATE["input_data"] = None
+                USER_STATE["input_event"].clear()
+                USER_STATE["change_phone"] = False
+                
+                if not USER_STATE["input_event"].wait(timeout=180):
+                    browser.close()
+                    chrome_browser.close()
+                    return False, "انتهى وقت الانتظار للكود (3 دقائق)."
+                    
+                USER_STATE["waiting_for"] = None 
+                
+                # إذا ضغط المستخدم على زر "تغيير رقم الهاتف"
+                if USER_STATE["change_phone"]:
+                    bot.send_message(chat_id, "🔄 جاري العودة لصفحة رقم الهاتف...")
+                    try:
+                        change_btn = signup_page.locator(':is(button, a):has-text("Change"), :is(button, a):has-text("تغيير")').first
+                        change_btn.click()
+                        signup_page.wait_for_timeout(4000)
+                    except:
+                        signup_page.go_back()
+                        signup_page.wait_for_timeout(4000)
+                    continue # العودة لبداية حلقة الـ While لطلب الرقم مجدداً
+                    
+                otp_code = USER_STATE["input_data"]
+                
+                # إدخال الكود وإنهاء العملية
+                bot.send_message(chat_id, f"⏳ جاري إدخال الكود `{otp_code}` وتأكيد الحساب...")
+                try:
+                    otp_input = signup_page.locator('input[type="text"], input[name="code"], input[name="otp"]').first
+                    otp_input.fill(otp_code)
+                    signup_page.wait_for_timeout(1000)
+                    
+                    # الضغط على زر المتابعة
+                    signup_page.keyboard.press("Enter")
+                    signup_page.wait_for_timeout(6000)
+                    
+                    # الضغط على أنتر للمرة الأخيرة تحسباً لأي صفحة إضافية
+                    signup_page.keyboard.press("Enter")
+                    signup_page.wait_for_timeout(4000)
+                except Exception:
+                    signup_page.keyboard.press("Enter")
+                    
+                send_progress_photo(signup_page, chat_id, "📸 واجهة الحساب النهائية بعد التفعيل.")
+                break # الخروج من حلقة الـ While بنجاح
+                
             browser.close()
             chrome_browser.close()
-            return True, {"links": netflix_links, "text": extracted_text}
+            return True, {"links": netflix_links, "text": "تم إنهاء تسجيل الحساب كاملاً وربط الهاتف بنجاح!"}
             
     except Exception as e:
         return False, f"خطأ: {str(e)}"
@@ -242,7 +388,7 @@ def main_keyboard():
         btn_screenshot_new = InlineKeyboardButton("📸 فتح صفحة جديدة (منفصلة)", callback_data="take_screenshot")
         btn_screenshot_pinned = InlineKeyboardButton("📌 عرض الصفحة المثبتة", callback_data="view_pinned_page")
         
-        btn_auto = InlineKeyboardButton("🚀 إدخال الإيميل وجلب الروابط", callback_data="start_auto")
+        btn_auto = InlineKeyboardButton("🚀 إنشاء الحساب وتفعيل الهاتف", callback_data="start_auto")
         btn_length_info = InlineKeyboardButton(f"طول الإيميل: {USER_STATE['email_length']}", callback_data="none")
         btn_plus = InlineKeyboardButton("➕ زيادة", callback_data="inc_email")
         btn_minus = InlineKeyboardButton("➖ تقليل", callback_data="dec_email")
@@ -287,6 +433,16 @@ def callback_listener(call):
     if not is_admin(user_id):
         return
 
+    # معالجة زر تغيير رقم الهاتف
+    if call.data == "change_phone_number":
+        if USER_STATE["waiting_for"] == "otp":
+            USER_STATE["change_phone"] = True
+            USER_STATE["input_event"].set() # إنهاء الانتظار
+            bot.answer_callback_query(call.id, "🔄 جاري العودة لخطوة رقم الهاتف...")
+        else:
+            bot.answer_callback_query(call.id, "❌ لا يمكن تغيير الرقم الآن.", show_alert=True)
+        return
+
     if call.data == "inc_email":
         if USER_STATE["email_length"] < 15:
             USER_STATE["email_length"] += 1
@@ -306,17 +462,16 @@ def callback_listener(call):
             success, result = execute_netflix_automation(USER_STATE["pinned_session"], USER_STATE["pinned_image"], target_email, chat_id)
             
             if success:
-                links_text = "\n".join(result["links"]) if result["links"] else "⚠️ لم يتم العثور على روابط نتفلكس."
-                msg = f"✅ **تم!**\n\n📧 `{target_email}`\n\n🔗 **الروابط:**\n{links_text}"
+                msg = f"✅ **اكتمل إنشاء الحساب بالكامل!**\n\n📧 `{target_email}`\n\n📄 **النتيجة:**\n{result['text']}"
                 bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=main_keyboard())
             else:
-                bot.send_message(chat_id, f"❌ **نتيجة النهاية:**\n{result}", reply_markup=main_keyboard(), parse_mode="Markdown")
+                bot.send_message(chat_id, f"❌ **توقفت العملية:**\n{result}", reply_markup=main_keyboard(), parse_mode="Markdown")
 
         threading.Thread(target=run_automation).start()
 
     elif call.data == "take_screenshot":
         bot.answer_callback_query(call.id, "جاري فتح صفحة جديدة...")
-        bot.edit_message_text("⏳ جاري الفتح بقوة...", chat_id, call.message.message_id)
+        bot.edit_message_text("⏳ جاري الفتح...", chat_id, call.message.message_id)
         
         def process_screenshot():
             url = "https://www.netflix.com/clearcookies"
