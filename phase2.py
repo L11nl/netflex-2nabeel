@@ -18,72 +18,82 @@ def complete_signup_phase(ctx):
     netflix_links = ctx["netflix_links"]
 
     # -------------------------------------------------------------
-    # 🔥 المرحلة الثانية: التعامل مع صفحة Finish Sign-Up مباشرة 🔥
+    # 🔥 المرحلة الثانية: التنقل الذكي للوصول إلى طرق الدفع 🔥
     # -------------------------------------------------------------
     signup_page = context.new_page()
     apply_stealth(signup_page)
     safely_goto(signup_page, epr_link)
     
     send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
+    bot.send_message(chat_id, "⏳ جاري فحص صفحات العروض وتخطيها للوصول لصفحة الدفع...")
 
-    # 1. زر Finish Sign-Up الأساسي
-    try:
-        finish_btn = signup_page.locator('text="Finish Sign-Up"').first
-        finish_btn.wait_for(state="visible", timeout=20000)
-        finish_btn.click(timeout=10000)
+    payment_page_reached = False
+    
+    # حلقة ذكية للبحث عن زر "فاتورة الهاتف" وتخطي أي صفحات تعترض الطريق (تعمل 5 مرات كحد أقصى)
+    for step in range(1, 6):
+        signup_page.wait_for_timeout(4000) # انتظار استقرار الصفحة لتجنب الأخطاء
         
-        bot.send_message(chat_id, "⏳ تم الضغط على الزر.. ننتظر اختفاء الصفحة بالكامل للانتقال...")
-        finish_btn.wait_for(state="hidden", timeout=60000) 
-        send_progress_photo(signup_page, chat_id, "✅ [6] اختفت الصفحة وانتقلنا للخطوة التالية بنجاح.")
-        
-    except Exception as e:
-        try: 
-            alt_btn = signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue"), :is(button, a):has-text("متابعة")').first
-            alt_btn.click(timeout=10000)
-            bot.send_message(chat_id, "⏳ ننتظر اختفاء الصفحة...")
-            alt_btn.wait_for(state="hidden", timeout=60000)
-            send_progress_photo(signup_page, chat_id, "✅ [6-بديل] اختفت الصفحة وانتقلنا.")
-        except Exception as ex:
-            bot.send_message(chat_id, f"⚠️ حدث تأخير أو خطأ ولم تختفِ الصفحة: {ex}")
-
-    # 2. تخطي أي صفحة إضافية تظهر بعدها
-    for i in range(1, 3):
-        try:
-            next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
-            if next_btn_extra.is_visible(timeout=3000):
-                next_btn_extra.click()
-                bot.send_message(chat_id, f"⏳ ننتظر اختفاء الصفحة الفرعية ({i})...")
-                next_btn_extra.wait_for(state="hidden", timeout=45000)
-                send_progress_photo(signup_page, chat_id, f"✅ تم تخطي واختفاء الصفحة الفرعية ({i}).")
-        except:
+        # 1. فحص هل وصلنا للهدف (خيار فاتورة الهاتف)؟
+        mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
+        if mobile_bill_option.is_visible(timeout=3000):
+            payment_page_reached = True
+            send_progress_photo(signup_page, chat_id, "✅ ممتاز! تم الوصول بنجاح إلى صفحة طرق الدفع.")
             break
+            
+        # 2. إذا لم نصل، نبحث عن زر "التالي" أو "متابعة" لتخطي الصفحة الحالية
+        try:
+            # النزول لأسفل الصفحة (لأن زر Next في صفحة الخطط يكون في الأسفل)
+            signup_page.keyboard.press("End")
+            signup_page.wait_for_timeout(1500)
+            
+            next_btn = signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Next"), :is(button, a):has-text("Continue"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي")').first
+            
+            if next_btn.is_visible(timeout=3000):
+                send_progress_photo(signup_page, chat_id, f"📸 [تخطي الذكاء الاصطناعي] تم رصد صفحة عرض ({step}). جاري الضغط على التالي...")
+                next_btn.click(timeout=10000)
+                # ننتظر تحميل الصفحة الجديدة بعد الضغط
+                signup_page.wait_for_load_state("domcontentloaded", timeout=15000)
+            else:
+                signup_page.keyboard.press("Enter")
+        except Exception as e:
+            pass
 
-    send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية جاهزة لاختيار فاتورة الهاتف.")
+    # إذا انتهت المحاولات ولم يصل لخيار الدفع
+    if not payment_page_reached:
+        bot.send_message(chat_id, "❌ توقفت العملية: نتفلكس لم يظهر صفحة الدفع بعد كل المحاولات.")
+        send_progress_photo(signup_page, chat_id, "📸 الشاشة العالقة النهائية:")
+        browser.close()
+        chrome_browser.close()
+        return False, "فشل الوصول لصفحة الدفع."
 
-    # 3. اختيار فاتورة الهاتف
+    # -------------------------------------------------------------
+    # 3. اختيار فاتورة الهاتف والعبور لصفحة الرقم
+    # -------------------------------------------------------------
     bot.send_message(chat_id, "⏳ جاري اختيار (إضافة إلى فاتورة الهاتف المحمول)...")
     try:
-        mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
         mobile_bill_option.click(timeout=10000)
         signup_page.wait_for_timeout(2000)
         send_progress_photo(signup_page, chat_id, "📸 [8] تم تحديد خيار (فاتورة الهاتف).")
         
+        # الضغط على زر المتابعة بعد اختيار طريقة الدفع
         next_btn2 = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
         if next_btn2.is_visible(timeout=3000):
             next_btn2.click()
-            bot.send_message(chat_id, "⏳ ننتظر اختفاء صفحة طرق الدفع للانتقال لرقم الهاتف...")
-            next_btn2.wait_for(state="hidden", timeout=45000)
-            send_progress_photo(signup_page, chat_id, "✅ [9] اختفت الصفحة ووصلنا لخطوة رقم الهاتف.")
+            bot.send_message(chat_id, "⏳ ننتظر تحميل صفحة رقم الهاتف...")
+            # الانتظار حتى يتغير الرابط وتحمل الصفحة
+            signup_page.wait_for_load_state("domcontentloaded", timeout=20000)
     except Exception:
         signup_page.keyboard.press("Enter")
         signup_page.wait_for_timeout(4000)
 
+    # -------------------------------------------------------------
     # 4. خطوة إدخال رقم الهاتف وكود الـ OTP بذكاء
+    # -------------------------------------------------------------
     while True:
         phone_input = signup_page.locator('input[type="tel"], input[name="phoneNumber"]').first
         
         try:
-            bot.send_message(chat_id, "⏳ جاري فحص الصفحة للتأكد من جاهزيتها لاستقبال رقم الهاتف...")
+            # الذكاء 1: لن يطلب الرقم إلا إذا كان الحقل موجوداً فعلاً
             phone_input.wait_for(state="visible", timeout=30000)
             send_progress_photo(signup_page, chat_id, "📸 [10] صفحة إدخال رقم الهاتف جاهزة فعلياً أمامنا.")
         except Exception:
@@ -162,7 +172,7 @@ def complete_signup_phase(ctx):
             try:
                 change_btn = signup_page.locator(':is(button, a):has-text("Change"), :is(button, a):has-text("تغيير")').first
                 change_btn.click()
-                change_btn.wait_for(state="hidden", timeout=30000)
+                signup_page.wait_for_load_state("domcontentloaded", timeout=15000)
             except:
                 signup_page.go_back()
                 signup_page.wait_for_timeout(4000)
