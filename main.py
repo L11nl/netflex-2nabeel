@@ -58,12 +58,13 @@ def safely_goto(page, url, timeout=40000):
         page.goto(url, timeout=timeout, wait_until="domcontentloaded")
     except Exception:
         pass 
-    page.wait_for_timeout(3000)
+    page.wait_for_timeout(4000)
 
+# دالة التقاط الصور مع وقت استقرار كافٍ لمنع الشاشة البيضاء
 def send_progress_photo(page, chat_id, caption):
     try:
-        page.wait_for_timeout(1500) 
-        screenshot_bytes = page.screenshot(full_page=False, timeout=15000)
+        page.wait_for_timeout(3000) # وقت كافٍ لتحميل عناصر الصفحة تماماً
+        screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
     except Exception as e:
         bot.send_message(chat_id, f"{caption}\n\n*(⚠️ لم نتمكن من التقاط الصورة، مستمرون...)*", parse_mode="Markdown")
@@ -219,7 +220,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط في المتصفح...")
             
             # -------------------------------------------------------------
-            # 🔥 المرحلة الثانية: الضغط على Finish Sign-Up وإضافة فاتورة الهاتف 🔥
+            # 🔥 المرحلة الثانية: التعامل مع صفحة Finish Sign-Up مباشرة 🔥
             # -------------------------------------------------------------
             signup_page = context.new_page()
             apply_stealth(signup_page)
@@ -227,20 +228,23 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             
             send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
 
-            # الضغط حصرياً على زر Finish Sign-Up الظاهر في الصورة
+            # الانتظار حتى تظهر صفحة Finish Sign-Up الموضحة في صورتك وضغطها بأمان
             try:
-                finish_sign_btn = signup_page.locator('text="Finish Sign-Up"').first
-                if finish_sign_btn.is_visible(timeout=10000):
-                    finish_sign_btn.click(timeout=10000)
-                    signup_page.wait_for_timeout(6000)
-                    send_progress_photo(signup_page, chat_id, "📸 [6] تم الضغط على زر (Finish Sign-Up) بنجاح.")
-                else:
-                    signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue")').first.click(timeout=5000)
-                    signup_page.wait_for_timeout(5000)
+                finish_btn = signup_page.locator('text="Finish Sign-Up"').first
+                finish_btn.wait_for(state="visible", timeout=20000) # انتظار حتى 20 ثانية لضمان التحميل الكامل
+                finish_btn.click(timeout=10000)
+                signup_page.wait_for_timeout(6000)
+                send_progress_photo(signup_page, chat_id, "📸 [6] تم الضغط على زر (Finish Sign-Up) بنجاح.")
             except Exception as e:
-                bot.send_message(chat_id, f"⚠️ محاولة ضغط زر Finish Sign-Up: {e}")
+                # محاولة بديلة في حال اختلاف التسمية
+                try:
+                    signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue")').first.click(timeout=10000)
+                    signup_page.wait_for_timeout(6000)
+                    send_progress_photo(signup_page, chat_id, "📸 [6-بديل] تم الضغط على زر المتابعة.")
+                except Exception as ex:
+                    bot.send_message(chat_id, f"⚠️ تعذر الضغط التلقائي على زر Finish Sign-Up: {ex}")
 
-            # تخطي أي صفحة ترحيبية أخرى إن وجدت
+            # تخطي أي صفحة إضافية تظهر بعدها
             for i in range(1, 3):
                 try:
                     next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
@@ -500,4 +504,3 @@ def callback_listener(call):
 
 print("البوت يعمل الآن...")
 bot.infinity_polling()
-
