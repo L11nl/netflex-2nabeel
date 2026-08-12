@@ -1,4 +1,4 @@
-# main.py
+# -*- coding: utf-8 -*-
 import time
 import threading
 import os
@@ -10,20 +10,17 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from playwright.sync_api import sync_playwright
 
-# استدعاء المرحلة الثانية من الملف الجديد
+# استدعاء دالة المرحلة الثانية بأمان
 from phase2 import complete_signup_phase
 
-# مكتبة التخفي
 try:
     from playwright_stealth import stealth_sync
 except ImportError:
     stealth_sync = None
 
-# --- إعدادات البيئة والتوكن ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ضع_توكن_البوت_هنا")
 ALLOWED_USER_ID = int(os.environ.get("ALLOWED_USER_ID", "643309456"))
 
-# إعداد البروكسي
 PROXY_SERVER = "http://gw.dataimpulse.com:823"
 PROXY_USERNAME = "a2554925de14dc8880af"
 PROXY_PASSWORD = "b48bdda8a174e3aa"
@@ -33,7 +30,6 @@ bot = telebot.TeleBot(BOT_TOKEN)
 def is_admin(user_id):
     return user_id == ALLOWED_USER_ID
 
-# 🔹 متغيرات حالة المستخدم 🔹
 USER_STATE = {
     "is_pinned": False,
     "pinned_session": "pinned_session.json",
@@ -64,10 +60,9 @@ def safely_goto(page, url, timeout=40000):
         pass 
     page.wait_for_timeout(4000)
 
-# دالة التقاط الصور مع وقت استقرار كافٍ لمنع الشاشة البيضاء
 def send_progress_photo(page, chat_id, caption):
     try:
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(3000) 
         screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
     except Exception as e:
@@ -124,12 +119,10 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             netflix_page = context.new_page()
             apply_stealth(netflix_page)
             
-            # --- الخطوة 1: الفتح ---
             bot.send_message(chat_id, "⏳ جاري تنفيذ المسار الناجح (فايرفوكس المخفي)...")
             safely_goto(netflix_page, "https://www.netflix.com/login")
             send_progress_photo(netflix_page, chat_id, "📸 [1] تم فتح صفحة نتفلكس الرئيسية.")
             
-            # --- الخطوة 2: الإيميل ---
             try:
                 email_input = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                 if email_input.is_visible(timeout=5000):
@@ -165,7 +158,6 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             except:
                 pass
                 
-            # --- الخطوة 3: التحقق وتخطي الصفحات ---
             for i in range(1, 5):
                 try:
                     success_target = netflix_page.locator(':is(:text("Tap the link in your email")), :is(:text("resend it")), :is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
@@ -193,7 +185,6 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 except Exception:
                     break
             
-            # --- الخطوة 4: صندوق البريد ---
             bot.send_message(chat_id, "⏳ ننتقل للبريد لاستخراج رابط (إكمال التسجيل)...")
             chrome_browser = p.chromium.launch(
                 headless=True,
@@ -224,17 +215,27 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط في المتصفح...")
             
             # -------------------------------------------------------------
-            # توجيه المهمة إلى الدالة في الملف الثاني (phase2.py)
+            # توجيه المهمة إلى الدالة في الملف الثاني باستخدام حزمة البيانات (ctx)
             # -------------------------------------------------------------
-            return complete_signup_phase(
-                context, browser, chrome_browser, epr_link, chat_id, 
-                bot, USER_STATE, apply_stealth, safely_goto, send_progress_photo, netflix_links
-            )
+            ctx = {
+                "context": context,
+                "browser": browser,
+                "chrome_browser": chrome_browser,
+                "epr_link": epr_link,
+                "chat_id": chat_id,
+                "bot": bot,
+                "USER_STATE": USER_STATE,
+                "apply_stealth": apply_stealth,
+                "safely_goto": safely_goto,
+                "send_progress_photo": send_progress_photo,
+                "netflix_links": netflix_links
+            }
+            return complete_signup_phase(ctx)
             
     except Exception as e:
         return False, f"خطأ: {str(e)}"
 
-# --- القوائم السفلية وما يتبعها تبقى كما هي بدون أي تغيير ---
+# --- القوائم السفلية ---
 def main_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
