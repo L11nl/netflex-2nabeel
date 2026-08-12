@@ -39,13 +39,12 @@ def generate_random_email(length):
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     return f"{username}@5xu.vn"
 
-# --- دالة التقاط الصور (تم تسريعها بإلغاء full_page لمنع التايم أوت) ---
+# --- دالة مساعدة لالتقاط الصور بأمان ---
 def send_progress_photo(page, chat_id, caption):
     try:
-        # full_page=False يجعل التقاط الصورة سريعاً جداً ولا يتأثر ببطء البروكسي
         screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
-    except Exception as e:
+    except Exception:
         bot.send_message(chat_id, f"{caption}\n\n*(⚠️ تعذر التقاط الصورة، لكن العملية مستمرة...)*", parse_mode="Markdown")
 
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=5):
@@ -94,11 +93,10 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
             
     return None, last_error
 
-# --- دالة أتمتة التسجيل (محسنة لتخطي حماية نتفلكس) ---
+# --- دالة أتمتة التسجيل (محسنة لتخطي Google reCAPTCHA) ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
         with sync_playwright() as p:
-            # المتصفح يعمل خلف البروكسي طوال الوقت، ولن يتصل بدونه إطلاقاً
             browser = p.chromium.launch(
                 headless=True,
                 proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD},
@@ -113,30 +111,36 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             
             netflix_page = context.new_page()
             
-            # --- الخطوة 1: فتح الصفحة المثبتة ---
+            # --- الخطوة 1: فتح الصفحة ---
             bot.send_message(chat_id, "⏳ الخطوة 1: جاري فتح (الصفحة المثبتة)...")
             netflix_page.goto("https://www.netflix.com/login", timeout=60000, wait_until="domcontentloaded")
-            netflix_page.wait_for_timeout(4000)
             
-            # --- الخطوة 2: إدخال الإيميل بذكاء وتخطي الخطأ الأحمر ---
-            bot.send_message(chat_id, f"⏳ الخطوة 2: جاري كتابة الإيميل `{email}` (بطريقة بشرية لتجنب الحظر)...")
+            # --- الخطوة 2: محاكاة السلوك البشري لتخطي reCAPTCHA ---
+            bot.send_message(chat_id, f"⏳ الخطوة 2: جاري إدخال الإيميل `{email}` (تجاوز حماية جوجل)...")
             
             for attempt in range(1, 4):
+                # 1. إعطاء ريكابتشا وقتاً للتحميل (5 ثوانٍ ضرورية جداً)
+                netflix_page.wait_for_timeout(5000)
+                
                 try:
                     email_input = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                     if email_input.is_visible(timeout=5000):
-                        email_input.click()
-                        email_input.fill("") # تفريغ الخانة أولاً
-                        # 🔥 الكتابة حرفاً حرفاً ببطء (100 ملي ثانية بين كل حرف) لتبدو كإنسان 🔥
-                        email_input.type(email, delay=100)
+                        # 2. محاكاة حركة الماوس
+                        email_input.hover()
                         netflix_page.wait_for_timeout(1000)
+                        email_input.click()
+                        email_input.fill("")
+                        email_input.type(email, delay=150) # كتابة بطيئة
+                        netflix_page.wait_for_timeout(2000)
                 except:
                     pass
                 
-                # محاولة الضغط على الزر أو Enter
+                # 3. استخدام الماوس لضغط الزر بدلاً من Enter
                 try:
                     continue_btn = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Next"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي")').first
                     if continue_btn.is_visible(timeout=3000):
+                        continue_btn.hover() # تمرير الماوس فوق الزر
+                        netflix_page.wait_for_timeout(1000)
                         continue_btn.click(timeout=10000)
                     else:
                         email_input.press("Enter")
@@ -146,23 +150,23 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     
                 netflix_page.wait_for_timeout(6000)
                 
-                # 🔥 فحص الخطأ الأحمر 🔥
+                # 🔥 فحص الخطأ الأحمر (Something went wrong) 🔥
                 try:
                     error_msg = netflix_page.locator('text="Something went wrong"').first
                     if error_msg.is_visible(timeout=3000):
-                        bot.send_message(chat_id, f"⚠️ ظهر خطأ (Something went wrong)، جاري تحديث الصفحة والمحاولة مرة أخرى (رقم {attempt})...")
-                        send_progress_photo(netflix_page, chat_id, "📸 صورة الخطأ (نقوم الآن بعمل Refresh للصفحة).")
+                        bot.send_message(chat_id, f"⚠️ جوجل ريكابتشا أوقفتنا. جاري مسح الكوكيز والمحاولة بصفحة نظيفة (رقم {attempt+1})...")
+                        send_progress_photo(netflix_page, chat_id, "📸 صورة الخطأ قبل المحاولة الجديدة.")
                         
-                        # تحديث الصفحة للتخلص من بلوك نتفلكس المؤقت
+                        # مسح الكوكيز لنسيان البلوك وإعادة تحميل الصفحة
+                        context.clear_cookies()
                         netflix_page.reload(timeout=60000, wait_until="domcontentloaded")
-                        netflix_page.wait_for_timeout(5000)
-                        continue # الرجوع لبداية الحلقة وكتابة الإيميل مرة أخرى
+                        continue 
                 except:
                     pass
                     
-                break # إذا نجح ولم يظهر الخطأ، يخرج من الحلقة
+                break # الخروج من الحلقة إذا لم يظهر الخطأ
                 
-            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: الصفحة بعد تجاوز إدخال الإيميل.")
+            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: الصفحة بعد تجاوز حماية الإيميل.")
             
             # --- الخطوة 3: تخطي الصفحات حتى الوصول لـ Resend Link ---
             bot.send_message(chat_id, "⏳ الخطوة 3: جاري متابعة الخطوات للوصول إلى (إرسال الرابط)...")
@@ -174,12 +178,12 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                         bot.send_message(chat_id, "✅ ممتاز! وصلنا لصفحة (Resend Link)، وتم إرسال الرسالة بنجاح.")
                         break
                         
-                    # إذا طلبت نتفلكس الإيميل مرة أخرى في منتصف الطريق
                     try:
                         email_input_again = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                         if email_input_again.is_visible(timeout=2000) and not email_input_again.input_value():
+                            email_input_again.hover()
                             email_input_again.click()
-                            email_input_again.type(email, delay=100)
+                            email_input_again.type(email, delay=150)
                             netflix_page.wait_for_timeout(1000)
                     except: pass
                     
@@ -187,6 +191,8 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     
                     if next_btn.is_visible(timeout=4000):
                         bot.send_message(chat_id, f"⏳ جاري الضغط على زر المتابعة (تخطي صفحة {i})...")
+                        next_btn.hover()
+                        netflix_page.wait_for_timeout(1000)
                         next_btn.click(timeout=10000)
                         netflix_page.wait_for_timeout(8000)
                         send_progress_photo(netflix_page, chat_id, f"📸 نتيجة الضغط وتخطي الصفحة (رقم {i}).")
