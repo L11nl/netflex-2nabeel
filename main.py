@@ -7,20 +7,24 @@ import random
 import string
 import requests
 import telebot
+import re
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from playwright.sync_api import sync_playwright
 
 # استدعاء دالة المرحلة الثانية بأمان
 from phase2 import complete_signup_phase
 
+# مكتبة التخفي
 try:
     from playwright_stealth import stealth_sync
 except ImportError:
     stealth_sync = None
 
+# --- إعدادات البيئة والتوكن ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ضع_توكن_البوت_هنا")
 ALLOWED_USER_ID = int(os.environ.get("ALLOWED_USER_ID", "643309456"))
 
+# إعداد البروكسي
 PROXY_SERVER = "http://gw.dataimpulse.com:823"
 PROXY_USERNAME = "a2554925de14dc8880af"
 PROXY_PASSWORD = "b48bdda8a174e3aa"
@@ -30,6 +34,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 def is_admin(user_id):
     return user_id == ALLOWED_USER_ID
 
+# 🔹 متغيرات حالة المستخدم 🔹
 USER_STATE = {
     "is_pinned": False,
     "pinned_session": "pinned_session.json",
@@ -68,13 +73,36 @@ def send_progress_photo(page, chat_id, caption):
     except Exception as e:
         bot.send_message(chat_id, f"{caption}\n\n*(⚠️ لم نتمكن من التقاط الصورة، مستمرون...)*", parse_mode="Markdown")
 
+# --- الدالة الذكية لاستقبال الإدخال ---
 @bot.message_handler(func=lambda msg: USER_STATE["waiting_for"] in ["phone", "otp"])
 def handle_interactive_input(message):
     if not is_admin(message.from_user.id):
         return
-    USER_STATE["input_data"] = message.text.strip()
+    
+    text = message.text.strip()
+    
+    if text.startswith('/'):
+        bot.send_message(message.chat.id, "⚠️ تم تجاهل الأمر. البوت ينتظر منك إرسال الرقم أو الكود فقط.")
+        return
+
+    if USER_STATE["waiting_for"] == "phone":
+        digits_only = re.sub(r'\D', '', text)
+        if not (digits_only.startswith('07') or digits_only.startswith('964')) or len(digits_only) < 10:
+            bot.send_message(message.chat.id, "⚠️ عذراً، هذا ليس رقم هاتف عراقي صحيح! يرجى إرسال رقم مثل: 07XXXXXXXXX")
+            return
+            
+        USER_STATE["input_data"] = text
+        bot.send_message(message.chat.id, "✅ تم استلام الرقم وتمريره للمتصفح...")
+
+    elif USER_STATE["waiting_for"] == "otp":
+        if not text.isdigit():
+            bot.send_message(message.chat.id, "⚠️ كود التفعيل يجب أن يحتوي على أرقام فقط!")
+            return
+            
+        USER_STATE["input_data"] = text
+        bot.send_message(message.chat.id, "✅ تم استلام الكود وتمريره للمتصفح...")
+
     USER_STATE["input_event"].set()
-    bot.send_message(message.chat.id, "✅ تم استلام الإدخال، جاري تطبيقه في المتصفح الآن...")
 
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=3):
     for attempt in range(1, max_retries + 1):
