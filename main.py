@@ -9,7 +9,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-# محاولة استدعاء مكتبة التخفي السحرية
+# محاولة استدعاء مكتبة التخفي
 try:
     from playwright_stealth import stealth_sync
 except ImportError:
@@ -46,19 +46,19 @@ def generate_random_email(length):
     return f"{username}@5xu.vn"
 
 def apply_stealth(page):
-    """دالة لتطبيق التخفي على المتصفح لمنع اكتشافه من نتفلكس وجوجل"""
     if stealth_sync:
         stealth_sync(page)
     else:
-        # حقن كود احتياطي لإخفاء بصمة البوت إذا لم يتم تثبيت المكتبة
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
+# --- دالة التقاط الصور (تم إعادتها وتحسينها) ---
 def send_progress_photo(page, chat_id, caption):
     try:
+        page.wait_for_timeout(500) # استقرار الصفحة لضمان تصويرها بوضوح
         screenshot_bytes = page.screenshot(full_page=False, timeout=15000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
-    except Exception:
-        pass # تجاهل الخطأ لكي لا نضيع الوقت في حال فشل التقاط الصورة
+    except Exception as e:
+        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ لم يتمكن البوت من التقاط الصورة بسبب بطء البروكسي، لكنه مستمر في العمل...)*", parse_mode="Markdown")
 
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=5):
     for attempt in range(1, max_retries + 1):
@@ -80,7 +80,7 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
                 
                 context = browser.new_context(**context_options)
                 page = context.new_page()
-                apply_stealth(page) # تطبيق التخفي هنا
+                apply_stealth(page) 
                 
                 page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
                 page.wait_for_timeout(3000)
@@ -115,14 +115,15 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             )
             
             netflix_page = context.new_page()
-            apply_stealth(netflix_page) # تطبيق التخفي الجذري هنا
+            apply_stealth(netflix_page)
             
             # --- الخطوة 1: فتح الصفحة ---
             bot.send_message(chat_id, "⏳ جاري تنفيذ العملية (المرور المخفي)...")
             netflix_page.goto("https://www.netflix.com/login", timeout=60000, wait_until="domcontentloaded")
             netflix_page.wait_for_timeout(4000)
+            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 1: الوصول لصفحة تسجيل الدخول.")
             
-            # --- الخطوة 2: تجاوز reCAPTCHA بأمان ---
+            # --- الخطوة 2: تجاوز reCAPTCHA ---
             for attempt in range(1, 4):
                 try:
                     email_input = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
@@ -131,6 +132,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                         email_input.fill("")
                         email_input.type(email, delay=150)
                         netflix_page.wait_for_timeout(1000)
+                        send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: تم إدخال الإيميل ببطء لمحاكاة السلوك البشري.")
                 except:
                     pass
                 
@@ -145,11 +147,13 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     except: pass
                     
                 netflix_page.wait_for_timeout(6000)
+                send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: الصفحة بعد الضغط على الاستمرار.")
                 
                 try:
                     error_msg = netflix_page.locator('text="Something went wrong"').first
                     if error_msg.is_visible(timeout=3000):
-                        context.clear_cookies() # تنظيف كامل للهوية
+                        send_progress_photo(netflix_page, chat_id, f"📸 ظهر الخطأ الأحمر (رقم {attempt}). جاري مسح الكوكيز وإعادة المحاولة!")
+                        context.clear_cookies() 
                         netflix_page.reload(timeout=60000, wait_until="domcontentloaded")
                         netflix_page.wait_for_timeout(4000)
                         continue 
@@ -164,6 +168,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     resend_btn = netflix_page.locator(':is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
                     if resend_btn.is_visible(timeout=3000):
                         bot.send_message(chat_id, "✅ تم إرسال رسالة نتفلكس بنجاح!")
+                        send_progress_photo(netflix_page, chat_id, "📸 صورة صفحة نجاح الإرسال (Resend Link).")
                         break
                         
                     try:
@@ -178,17 +183,21 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     if next_btn.is_visible(timeout=4000):
                         next_btn.click(timeout=10000)
                         netflix_page.wait_for_timeout(6000)
+                        send_progress_photo(netflix_page, chat_id, f"📸 تم الضغط وتخطي الصفحة (رقم {i}).")
                     else:
                         break 
                 except Exception:
                     break
             
             # --- الخطوة 4: صندوق البريد ---
+            bot.send_message(chat_id, "⏳ جاري الانتقال للبريد...")
             email_page = context.new_page()
-            apply_stealth(email_page) # تطبيق التخفي على البريد أيضاً
+            apply_stealth(email_page) 
             
             email_page.goto(f"https://generator.email/inbox9/{email}", timeout=60000, wait_until="domcontentloaded")
             email_page.wait_for_timeout(10000) 
+            
+            send_progress_photo(email_page, chat_id, "📸 الخطوة 4: صندوق البريد بعد الانتظار.")
             
             links = email_page.evaluate("""() => {
                 return Array.from(document.querySelectorAll('a')).map(a => a.href);
@@ -207,7 +216,6 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
     except Exception as e:
         return False, str(e)
 
-# --- القوائم السفلية والباقي بدون تغيير ---
 def main_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
