@@ -94,7 +94,7 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
             
     return None, last_error
 
-# --- دالة أتمتة التسجيل ---
+# --- دالة أتمتة التسجيل (المسار الجديد: Log in -> Continue -> Continue) ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
         with sync_playwright() as p:
@@ -112,87 +112,66 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             
             netflix_page = context.new_page()
             
-            # --- الخطوة 1: فتح صفحة نتفلكس ---
-            bot.send_message(chat_id, "⏳ الخطوة 1: جاري فتح صفحة نتفلكس الأساسية...")
-            netflix_page.goto("https://www.netflix.com/", timeout=30000, wait_until="domcontentloaded")
-            netflix_page.wait_for_timeout(3000)
+            # --- الخطوة 1: الذهاب لصفحة تسجيل الدخول (Log in) ---
+            bot.send_message(chat_id, "⏳ الخطوة 1: فتح موقع نتفلكس (صفحة Log in)...")
+            # توجيه مباشر لصفحة تسجيل الدخول لتجنب البحث عن الزر في الصفحة الرئيسية
+            netflix_page.goto("https://www.netflix.com/login", timeout=30000, wait_until="domcontentloaded")
+            netflix_page.wait_for_timeout(4000)
+            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 1: الوصول لصفحة تسجيل الدخول بنجاح.")
             
-            # --- الخطوة 2: كتابة الإيميل ---
-            bot.send_message(chat_id, f"⏳ الخطوة 2: جاري كتابة الإيميل `{email}`...")
-            email_input = netflix_page.locator("input[name='email'], input[type='email'], [placeholder*='Email']").first
+            # --- الخطوة 2: إدخال الإيميل والضغط على Continue ---
+            bot.send_message(chat_id, f"⏳ الخطوة 2: جاري إدخال الإيميل `{email}` والضغط على Continue...")
+            # البحث عن خانة الإيميل وتعبئتها
+            email_input = netflix_page.locator("input[name='userLoginId'], input[name='email'], input[type='email']").first
             email_input.fill(email)
             netflix_page.wait_for_timeout(1000)
-            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: تم إدخال الإيميل بنجاح.")
             
-            # --- الخطوة 3: الانتقال باستخدام زر Enter ---
-            bot.send_message(chat_id, "⏳ الخطوة 3: جاري الضغط على (Enter) لبدء التسجيل...")
+            # البحث عن زر Continue أو ما يعادله والضغط عليه (أو الضغط على Enter)
             try:
-                email_input.press("Enter")
+                continue_btn_1 = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Next"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي"), button[type="submit"]').first
+                if continue_btn_1.is_visible(timeout=3000):
+                    continue_btn_1.click(timeout=10000)
+                else:
+                    email_input.press("Enter")
             except:
+                email_input.press("Enter")
+                
+            netflix_page.wait_for_timeout(8000) # انتظار تحميل الصفحة الثانية
+            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: الصفحة بعد إدخال الإيميل والضغط على Continue.")
+            
+            # --- الخطوة 3: الصفحة الثانية والضغط على Continue الثاني ---
+            bot.send_message(chat_id, "⏳ الخطوة 3: جاري البحث عن زر (Continue) الثاني لضغط إرسال الرسالة...")
+            try:
+                # نبحث عن زر الاستمرار الثاني أو زر إرسال الرابط
+                continue_btn_2 = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Send"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("إرسال"), button[type="submit"]').first
+                
+                if continue_btn_2.is_visible(timeout=5000):
+                    continue_btn_2.click(timeout=10000)
+                    netflix_page.wait_for_timeout(8000)
+                else:
+                    bot.send_message(chat_id, "⚠️ لم يظهر زر (Continue) الثاني، قد تكون نتفلكس أرسلت الرسالة تلقائياً. سنكمل...")
+            except Exception:
                 pass
                 
-            if netflix_page.url == "https://www.netflix.com/" or netflix_page.url == "https://www.netflix.com/iq-en/":
-                try:
-                    try_btn = netflix_page.locator(':is(button, a):has-text("Days for USD 0"), :is(button, a):has-text("Try"), :is(button, a):has-text("Get Started")').first
-                    if try_btn.is_visible(timeout=2000):
-                        try_btn.click(timeout=10000)
-                except:
-                    pass
+            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 3: شكل الصفحة النهائية في نتفلكس بعد تأكيد الإرسال.")
             
-            # --- الخطوة 4: الفحص وتخطي الصفحات ---
-            bot.send_message(chat_id, "⏳ الخطوة 4: انتظار انتهاء التحميل للبحث عن أزرار (إرسال الرابط/متابعة)...")
-            netflix_page.wait_for_timeout(10000) 
-            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 4: هذه هي الصفحة التي ظهرت بعد انتهاء التحميل.")
-            
-            for i in range(1, 6):
-                try:
-                    # 1. التحقق إذا وصلنا للهدف (Resend Link)
-                    resend_btn = netflix_page.locator(':is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
-                    if resend_btn.is_visible(timeout=3000):
-                        bot.send_message(chat_id, "✅ ممتاز! وصلنا لصفحة (Resend Link)، نتفلكس أرسلت الرسالة بنجاح.")
-                        break
-                        
-                    # 2. 🔥 الحل الجديد: فحص إذا كانت نتفلكس تطلب الإيميل مرة أخرى وتعبئته 🔥
-                    try:
-                        email_input_again = netflix_page.locator("input[name='email'], input[type='email']").first
-                        if email_input_again.is_visible(timeout=2000):
-                            # إذا كانت الخانة فارغة، قم بتعبئتها
-                            if not email_input_again.input_value():
-                                bot.send_message(chat_id, "⚠️ نتفلكس طلبت الإيميل مرة أخرى، جاري إدخاله...")
-                                email_input_again.fill(email)
-                                netflix_page.wait_for_timeout(1000)
-                    except:
-                        pass # إذا لم توجد خانة إيميل، نتجاهل الخطوة ونكمل
-                        
-                    # 3. البحث عن أزرار الاستمرار والضغط عليها
-                    next_btn = netflix_page.locator(':is(button, a):has-text("Send Link"), :is(button, a):has-text("إرسال الرابط"), :is(button, a):has-text("Next"), :is(button, a):has-text("Continue"), :is(button, a):has-text("التالي"), :is(button, a):has-text("متابعة")').first
-                    
-                    if next_btn.is_visible(timeout=4000):
-                        bot.send_message(chat_id, f"⏳ جاري الضغط على الزر (تخطي صفحة {i})...")
-                        next_btn.click(timeout=10000)
-                        
-                        netflix_page.wait_for_timeout(8000)
-                        send_progress_photo(netflix_page, chat_id, f"📸 نتيجة الضغط على الزر (رقم {i}).")
-                    else:
-                        break 
-                except Exception:
-                    break
-                    
+            # حفظ تقدم نتفلكس (للعزل)
             try:
                 context.storage_state(path=session_file)
                 netflix_page.screenshot(path=image_file, full_page=True, timeout=20000)
             except:
                 pass
             
-            # --- الخطوة 5: الانتقال لموقع البريد ---
-            bot.send_message(chat_id, "⏳ الخطوة 5: جاري الانتقال لموقع البريد لاستلام الرسالة من نتفلكس...")
+            # --- الخطوة 4: الانتقال لموقع البريد ---
+            bot.send_message(chat_id, "⏳ الخطوة 4: جاري الانتقال لموقع البريد لاستلام الرسالة من نتفلكس...")
             email_page = context.new_page()
             
             email_page.goto(f"https://generator.email/inbox9/{email}", timeout=30000, wait_until="domcontentloaded")
-            email_page.wait_for_timeout(12000) 
+            email_page.wait_for_timeout(12000) # وقت انتظار وصول الرسالة
             
-            send_progress_photo(email_page, chat_id, "📸 الخطوة 5: شكل صندوق البريد الوارد بعد الانتظار لوصول الرسالة.")
+            send_progress_photo(email_page, chat_id, "📸 الخطوة 4: شكل صندوق البريد الوارد بعد الانتظار لوصول الرسالة.")
             
+            # استخراج الروابط من البريد
             links = email_page.evaluate("""() => {
                 return Array.from(document.querySelectorAll('a')).map(a => a.href);
             }""")
@@ -222,7 +201,8 @@ def main_keyboard():
         btn_screenshot_new = InlineKeyboardButton("📸 فتح صفحة جديدة (منفصلة)", callback_data="take_screenshot")
         btn_screenshot_pinned = InlineKeyboardButton("📌 عرض الصفحة المثبتة", callback_data="view_pinned_page")
         
-        btn_auto = InlineKeyboardButton("🚀 بدء التسجيل (إدخال الإيميل)", callback_data="start_auto")
+        # تغيير الاسم ليطابق الإجراء الجديد
+        btn_auto = InlineKeyboardButton("🚀 تسجيل الدخول وإرسال الرابط", callback_data="start_auto")
         btn_length_info = InlineKeyboardButton(f"طول الإيميل: {USER_STATE['email_length']}", callback_data="none")
         btn_plus = InlineKeyboardButton("➕ زيادة", callback_data="inc_email")
         btn_minus = InlineKeyboardButton("➖ تقليل", callback_data="dec_email")
