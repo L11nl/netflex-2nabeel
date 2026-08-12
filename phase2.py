@@ -1,8 +1,22 @@
-# phase2.py
+# -*- coding: utf-8 -*-
 import time
+import threading
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-def complete_signup_phase(context, browser, chrome_browser, epr_link, chat_id, bot, USER_STATE, apply_stealth, safely_goto, send_progress_photo, netflix_links):
+def complete_signup_phase(ctx):
+    # استخراج المتغيرات من الحزمة
+    context = ctx["context"]
+    browser = ctx["browser"]
+    chrome_browser = ctx["chrome_browser"]
+    epr_link = ctx["epr_link"]
+    chat_id = ctx["chat_id"]
+    bot = ctx["bot"]
+    USER_STATE = ctx["USER_STATE"]
+    apply_stealth = ctx["apply_stealth"]
+    safely_goto = ctx["safely_goto"]
+    send_progress_photo = ctx["send_progress_photo"]
+    netflix_links = ctx["netflix_links"]
+
     # -------------------------------------------------------------
     # 🔥 المرحلة الثانية: التعامل مع صفحة Finish Sign-Up مباشرة 🔥
     # -------------------------------------------------------------
@@ -12,7 +26,6 @@ def complete_signup_phase(context, browser, chrome_browser, epr_link, chat_id, b
     
     send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
 
-    # الانتظار حتى تظهر صفحة Finish Sign-Up
     try:
         finish_btn = signup_page.locator('text="Finish Sign-Up"').first
         finish_btn.wait_for(state="visible", timeout=20000)
@@ -27,7 +40,6 @@ def complete_signup_phase(context, browser, chrome_browser, epr_link, chat_id, b
         except Exception as ex:
             bot.send_message(chat_id, f"⚠️ تعذر الضغط التلقائي على زر Finish Sign-Up: {ex}")
 
-    # تخطي أي صفحة إضافية تظهر بعدها
     for i in range(1, 3):
         try:
             next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
@@ -39,7 +51,6 @@ def complete_signup_phase(context, browser, chrome_browser, epr_link, chat_id, b
 
     send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية قبل اختيار فاتورة الهاتف.")
 
-    # اختيار فاتورة الهاتف (Add to mobile bill)
     bot.send_message(chat_id, "⏳ جاري اختيار (إضافة إلى فاتورة الهاتف المحمول)...")
     try:
         mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
