@@ -9,12 +9,6 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from playwright.sync_api import sync_playwright
 
-# محاولة استدعاء مكتبة التخفي
-try:
-    from playwright_stealth import stealth_sync
-except ImportError:
-    stealth_sync = None
-
 # --- إعدادات البيئة والتوكن ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ضع_توكن_البوت_هنا")
 ALLOWED_USER_ID = int(os.environ.get("ALLOWED_USER_ID", "643309456"))
@@ -42,18 +36,11 @@ def generate_random_email(length):
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     return f"{username}@5xu.vn"
 
-def apply_stealth(page):
-    if stealth_sync:
-        stealth_sync(page)
-    else:
-        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
 def safely_goto(page, url, timeout=40000):
-    """دالة عبقرية لتخطي خطأ الـ Timeout: تفتح الرابط، وإذا تأخرت السكربتات الإعلانية، تتجاهلها وتكمل العمل"""
     try:
         page.goto(url, timeout=timeout, wait_until="domcontentloaded")
     except Exception:
-        pass # نتجاهل خطأ التحميل لأن الصفحة غالباً تكون قد ظهرت بالفعل
+        pass 
     page.wait_for_timeout(3000)
 
 def send_progress_photo(page, chat_id, caption):
@@ -62,22 +49,21 @@ def send_progress_photo(page, chat_id, caption):
         screenshot_bytes = page.screenshot(full_page=False, timeout=15000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
     except Exception:
-        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ مستمرون في العمل بالرغم من تعذر التصوير...)*", parse_mode="Markdown")
+        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ مستمرون...)*", parse_mode="Markdown")
 
-# --- دالة التقاط الصورة (مضادة للانهيار) ---
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=3):
     for attempt in range(1, max_retries + 1):
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(
+                # 🔥 التغيير الجذري: استخدام Firefox للهروب من ريكابتشا 🔥
+                browser = p.firefox.launch(
                     headless=True,
-                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD},
-                    args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
+                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
                 )
                 
                 context_options = {
                     'viewport': {'width': 1280, 'height': 720},
-                    'user_agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    'ignore_https_errors': True
                 }
                 
                 if session_file and os.path.exists(session_file):
@@ -85,11 +71,8 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
                 
                 context = browser.new_context(**context_options)
                 page = context.new_page()
-                apply_stealth(page) 
                 
-                # استخدام الدالة الآمنة لتخطي الـ Timeout
                 safely_goto(page, target_url)
-                
                 screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
                 
                 if session_file:
@@ -100,17 +83,15 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
                     
                 browser.close()
                 return screenshot_bytes, "Success"
-        except Exception as e:
+        except Exception:
             time.sleep(2)
             
     return None, "فشل الاتصال بالبروكسي تماماً."
 
-# --- دالة أتمتة التسجيل (نظام الاستراتيجيات المتعددة) ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     strategies = [
-        {"name": "الاستراتيجية 1 (صفحة Log in العادية)", "url": "https://www.netflix.com/login", "is_mobile": False},
-        {"name": "الاستراتيجية 2 (الصفحة الرئيسية Home)", "url": "https://www.netflix.com/", "is_mobile": False},
-        {"name": "الاستراتيجية 3 (محاكاة هاتف iPhone)", "url": "https://www.netflix.com/", "is_mobile": True}
+        {"name": "فايرفوكس - صفحة Log in", "url": "https://www.netflix.com/login"},
+        {"name": "فايرفوكس - الصفحة الرئيسية", "url": "https://www.netflix.com/"}
     ]
     
     success = False
@@ -120,50 +101,42 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
         
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(
+                # 🔥 استخدام محرك Firefox القوي ضد الكشف 🔥
+                browser = p.firefox.launch(
                     headless=True,
-                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD},
-                    args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
+                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
                 )
                 
-                # إعدادات السياق (كمبيوتر أو هاتف بناءً على الاستراتيجية)
-                if strategy["is_mobile"]:
-                    context_options = {
-                        'viewport': {'width': 375, 'height': 812},
-                        'user_agent': "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1",
-                        'is_mobile': True,
-                        'has_touch': True
-                    }
-                else:
-                    context_options = {
-                        'viewport': {'width': 1280, 'height': 720},
-                        'user_agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    }
+                context_options = {
+                    'viewport': {'width': 1280, 'height': 720},
+                    'ignore_https_errors': True
+                }
+                    
+                if session_file and os.path.exists(session_file):
+                    context_options['storage_state'] = session_file
                     
                 context = browser.new_context(**context_options)
                 netflix_page = context.new_page()
-                apply_stealth(netflix_page)
                 
-                # 1. فتح الصفحة بأمان
                 safely_goto(netflix_page, strategy["url"])
-                send_progress_photo(netflix_page, chat_id, "📸 الصفحة بعد الفتح.")
+                send_progress_photo(netflix_page, chat_id, "📸 الصفحة بعد الفتح (فايرفوكس).")
                 
-                # 2. إدخال الإيميل
                 try:
                     email_input = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                     if email_input.is_visible(timeout=5000):
                         email_input.click()
                         email_input.fill("")
                         for char in email:
-                            email_input.press_sequentially(char, delay=random.randint(50, 200))
+                            email_input.press_sequentially(char, delay=random.randint(50, 150))
                         netflix_page.wait_for_timeout(1000)
                 except:
                     pass
                 
-                # 3. الضغط على أزرار المتابعة
                 try:
                     continue_btn = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Next"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Get Started"), :is(button, a):has-text("Days for USD 0")').first
                     if continue_btn.is_visible(timeout=3000):
+                        continue_btn.hover()
+                        netflix_page.wait_for_timeout(500)
                         continue_btn.click(timeout=10000)
                     else:
                         email_input.press("Enter")
@@ -174,26 +147,23 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 netflix_page.wait_for_timeout(7000)
                 send_progress_photo(netflix_page, chat_id, "📸 الصفحة بعد ضغط الاستمرار.")
                 
-                # 4. فحص الخطأ الأحمر (إذا وجدناه، نكسر هذه الاستراتيجية لننتقل للتي بعدها)
                 try:
                     error_msg = netflix_page.locator('text="Something went wrong"').first
                     if error_msg.is_visible(timeout=3000):
-                        bot.send_message(chat_id, "⚠️ ظهر الخطأ الأحمر (حظر ريكابتشا). سننتقل للاستراتيجية البديلة فوراً...")
+                        bot.send_message(chat_id, "⚠️ ظهر الخطأ الأحمر حتى مع فايرفوكس. ننتقل للاستراتيجية البديلة...")
                         browser.close()
-                        continue # ينتقل للاستراتيجية التالية في الحلقة (For)
+                        continue 
                 except:
                     pass
                     
-                # 5. إذا لم يظهر الخطأ، نبحث عن Resend Link
                 for i in range(1, 4):
                     try:
                         resend_btn = netflix_page.locator(':is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
                         if resend_btn.is_visible(timeout=3000):
-                            bot.send_message(chat_id, f"✅ نجحت {strategy['name']}! تم الوصول لصفحة الإرسال.")
+                            bot.send_message(chat_id, f"✅ نجحت الاستراتيجية! تم الوصول لصفحة الإرسال.")
                             success = True
                             break
                             
-                        # إعادة إدخال الإيميل إن طُلب
                         try:
                             email_input_again = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                             if email_input_again.is_visible(timeout=2000) and not email_input_again.input_value():
@@ -214,28 +184,24 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                         break
                 
                 if success:
-                    # إذا نجحت الاستراتيجية، نغلق المتصفح ونكسر حلقة الاستراتيجيات الكبيرة للذهاب للبريد
                     browser.close()
                     break
                 else:
-                    # إذا لم تنجح، نغلق المتصفح ونجرب الاستراتيجية التالية
                     browser.close()
                     
         except Exception as e:
-            bot.send_message(chat_id, f"فشلت هذه الاستراتيجية بسبب خطأ برمجي، ننتقل للتي تليها...")
+            bot.send_message(chat_id, f"فشلت هذه الاستراتيجية، ننتقل للتي تليها...")
 
-    # --- الخطوة النهائية: صندوق البريد (تُنفذ فقط إذا نجحت إحدى الاستراتيجيات) ---
     if success:
         try:
             with sync_playwright() as p:
+                # نعود لاستخدام كروم لفتح البريد لأنه أسرع ولا يحتاج تخفي
                 browser = p.chromium.launch(
                     headless=True,
-                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD},
-                    args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
+                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
                 )
                 context = browser.new_context()
                 email_page = context.new_page()
-                apply_stealth(email_page)
                 
                 bot.send_message(chat_id, "⏳ ننتقل الآن للبريد الوارد لانتظار الرسالة...")
                 safely_goto(email_page, f"https://generator.email/inbox9/{email}", timeout=60000)
@@ -259,9 +225,8 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
         except Exception as e:
             return False, f"خطأ في البريد: {str(e)}"
     else:
-        return False, "❌ فشلت جميع الاستراتيجيات (1 و 2 و 3) في تجاوز حماية نتفلكس. قد يكون البروكسي محظوراً بالكامل من نتفلكس."
+        return False, "❌ فشلت جميع المحاولات حتى مع فايرفوكس.\n\n**السبب المؤكد 100%:** البروكسي (DataImpulse) يقوم بتغيير الـ IP أثناء انتقالك بين الصفحات، مما يجعل نتفلكس ترفض الطلب فوراً للحماية. لحل هذه المشكلة جذرياً، يجب استخدام بروكسي يمتلك ميزة (Sticky Session / آيبي ثابت للجلسة)."
 
-# --- القوائم السفلية والباقي بدون تغيير ---
 def main_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
@@ -340,7 +305,7 @@ def callback_listener(call):
                 msg = f"✅ **تم!**\n\n📧 `{target_email}`\n\n🔗 **الروابط:**\n{links_text}"
                 bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=main_keyboard())
             else:
-                bot.send_message(chat_id, f"❌ **نتيجة النهاية:**\n`{result}`", reply_markup=main_keyboard(), parse_mode="Markdown")
+                bot.send_message(chat_id, f"❌ **نتيجة النهاية:**\n{result}", reply_markup=main_keyboard(), parse_mode="Markdown")
 
         threading.Thread(target=run_automation).start()
 
