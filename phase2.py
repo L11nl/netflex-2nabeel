@@ -4,6 +4,7 @@ import threading
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def complete_signup_phase(ctx):
+    # استخراج المتغيرات من الحزمة
     context = ctx["context"]
     browser = ctx["browser"]
     chrome_browser = ctx["chrome_browser"]
@@ -25,59 +26,63 @@ def complete_signup_phase(ctx):
     
     send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
 
-    # التعامل مع صفحة Review to continue والتحميل
+    # 1. زر Finish Sign-Up الأساسي
     try:
-        # البحث عن الزر الأحمر (Finish Sign-Up أو Continue)
-        start_btn = signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue"), :is(button, a):has-text("متابعة")').first
-        start_btn.wait_for(state="visible", timeout=20000)
-        start_btn.click(timeout=10000)
+        finish_btn = signup_page.locator('text="Finish Sign-Up"').first
+        finish_btn.wait_for(state="visible", timeout=20000)
+        finish_btn.click(timeout=10000)
         
-        bot.send_message(chat_id, "⏳ تم الضغط على الزر.. جاري المراقبة وتصوير الشاشة كل 3 ثوانٍ...")
+        bot.send_message(chat_id, "⏳ تم الضغط على الزر.. ننتظر اختفاء الصفحة بالكامل للانتقال...")
         
-        # === تصوير الشاشة كل 3 ثواني ومراقبة التحميل (بحد أقصى 6 مرات = 18 ثانية) ===
-        for i in range(1, 7):
-            signup_page.wait_for_timeout(3000)
-            send_progress_photo(signup_page, chat_id, f"📸 جاري التحميل... (اللقطة {i})")
-            
-            # الفحص: هل ظهر خيار الدفع أو زر "التالي" الخاص بالصفحة الجديدة؟
-            next_step_element = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), :is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
-            if next_step_element.is_visible(timeout=1000):
-                bot.send_message(chat_id, "✅ اكتمل التحميل وظهرت الصفحة التالية!")
-                break
-                
+        # ⚠️ السطر السحري: البوت لن يتخطى هذا السطر أبداً حتى تختفي الصفحة الحالية!
+        finish_btn.wait_for(state="hidden", timeout=60000) 
+        
+        send_progress_photo(signup_page, chat_id, "✅ [6] اختفت الصفحة وانتقلنا للخطوة التالية بنجاح.")
     except Exception as e:
-        bot.send_message(chat_id, f"⚠️ حدث تأخير أو خطأ في صفحة التحميل: {e}")
+        try: # محاولة بديلة إذا كان اسم الزر مختلفاً
+            alt_btn = signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue"), :is(button, a):has-text("متابعة")').first
+            alt_btn.click(timeout=10000)
+            bot.send_message(chat_id, "⏳ ننتظر اختفاء الصفحة...")
+            alt_btn.wait_for(state="hidden", timeout=60000)
+            send_progress_photo(signup_page, chat_id, "✅ [6-بديل] اختفت الصفحة وانتقلنا.")
+        except Exception as ex:
+            bot.send_message(chat_id, f"⚠️ حدث تأخير أو خطأ ولم تختفِ الصفحة: {ex}")
 
-    # تخطي أي صفحة إضافية تظهر بعدها (Step 1 of 3 أو ما شابه)
+    # 2. تخطي أي صفحة إضافية تظهر بعدها (Step 1 of 3 أو غيرها)
     for i in range(1, 3):
         try:
             next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
             if next_btn_extra.is_visible(timeout=3000):
                 next_btn_extra.click()
-                signup_page.wait_for_timeout(4000)
-                send_progress_photo(signup_page, chat_id, f"📸 تخطي صفحة فرعية إضافية ({i}).")
+                bot.send_message(chat_id, f"⏳ ننتظر اختفاء الصفحة الفرعية ({i})...")
+                # إجبار البوت على انتظار اختفاء زر "التالي" قبل إكمال العمل
+                next_btn_extra.wait_for(state="hidden", timeout=45000)
+                send_progress_photo(signup_page, chat_id, f"✅ تم تخطي واختفاء الصفحة الفرعية ({i}).")
         except:
-            break
+            break # إذا لم تظهر صفحات إضافية، يخرج من الحلقة
 
-    send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية قبل اختيار فاتورة الهاتف.")
+    send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية جاهزة لاختيار فاتورة الهاتف.")
 
-    # اختيار فاتورة الهاتف (Add to mobile bill)
+    # 3. اختيار فاتورة الهاتف (Add to mobile bill)
     bot.send_message(chat_id, "⏳ جاري اختيار (إضافة إلى فاتورة الهاتف المحمول)...")
     try:
         mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
         mobile_bill_option.click(timeout=10000)
-        signup_page.wait_for_timeout(4000)
+        signup_page.wait_for_timeout(2000) # انتظار بسيط لتفعيل واجهة التحديد
         send_progress_photo(signup_page, chat_id, "📸 [8] تم تحديد خيار (فاتورة الهاتف).")
         
         next_btn2 = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
         if next_btn2.is_visible(timeout=3000):
             next_btn2.click()
-            signup_page.wait_for_timeout(4000)
-            send_progress_photo(signup_page, chat_id, "📸 [9] تم الضغط على التالي بعد اختيار الوسيلة.")
+            bot.send_message(chat_id, "⏳ ننتظر اختفاء صفحة طرق الدفع للانتقال لرقم الهاتف...")
+            # الانتظار حتى تختفي صفحة الدفع بالكامل
+            next_btn2.wait_for(state="hidden", timeout=45000)
+            send_progress_photo(signup_page, chat_id, "✅ [9] اختفت الصفحة ووصلنا لخطوة رقم الهاتف.")
     except Exception:
         signup_page.keyboard.press("Enter")
-        signup_page.wait_for_timeout(3000)
+        signup_page.wait_for_timeout(4000)
 
+    # 4. خطوة إدخال رقم الهاتف وكود الـ OTP
     while True:
         send_progress_photo(signup_page, chat_id, "📸 [10] صفحة إدخال رقم الهاتف جاهزة.")
         
@@ -110,7 +115,11 @@ def complete_signup_phase(ctx):
             
             verify_btn = signup_page.locator(':is(button, a):has-text("Verify Phone Number"), :is(button, a):has-text("التحقق")').first
             verify_btn.click(timeout=10000)
-            signup_page.wait_for_timeout(6000)
+            
+            bot.send_message(chat_id, "⏳ ننتظر اختفاء صفحة رقم الهاتف للانتقال لصفحة الـ OTP...")
+            # إجبار البوت على انتظار اختفاء زر التحقق قبل طلب الكود منك
+            verify_btn.wait_for(state="hidden", timeout=45000)
+            
         except Exception as e:
             pass
 
@@ -137,7 +146,7 @@ def complete_signup_phase(ctx):
             try:
                 change_btn = signup_page.locator(':is(button, a):has-text("Change"), :is(button, a):has-text("تغيير")').first
                 change_btn.click()
-                signup_page.wait_for_timeout(4000)
+                change_btn.wait_for(state="hidden", timeout=30000)
             except:
                 signup_page.go_back()
                 signup_page.wait_for_timeout(4000)
@@ -153,12 +162,13 @@ def complete_signup_phase(ctx):
             send_progress_photo(signup_page, chat_id, "📸 [13] تم كتابة الكود وقبل المتابعة.")
             
             signup_page.keyboard.press("Enter")
-            signup_page.wait_for_timeout(6000)
+            bot.send_message(chat_id, "⏳ ننتظر التحقق النهائي وإنشاء الحساب...")
+            # ننتظر قليلاً لضمان قبول الكود
+            signup_page.wait_for_timeout(10000)
             
-            signup_page.keyboard.press("Enter")
-            signup_page.wait_for_timeout(4000)
         except Exception:
             signup_page.keyboard.press("Enter")
+            signup_page.wait_for_timeout(10000)
             
         send_progress_photo(signup_page, chat_id, "📸 [14] واجهة الحساب النهائية بعد التفعيل والانتهاء.")
         break 
