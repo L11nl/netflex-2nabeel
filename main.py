@@ -60,10 +60,9 @@ def safely_goto(page, url, timeout=40000):
         pass 
     page.wait_for_timeout(4000)
 
-# دالة التقاط الصور مع وقت استقرار كافٍ لمنع الشاشة البيضاء
 def send_progress_photo(page, chat_id, caption):
     try:
-        page.wait_for_timeout(3000) # وقت كافٍ لتحميل عناصر الصفحة تماماً
+        page.wait_for_timeout(3000)
         screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
     except Exception as e:
@@ -228,54 +227,43 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             
             send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
 
-            # الانتظار حتى تظهر صفحة Finish Sign-Up الموضحة في صورتك وضغطها بأمان
-            try:
-                finish_btn = signup_page.locator('text="Finish Sign-Up"').first
-                finish_btn.wait_for(state="visible", timeout=20000) # انتظار حتى 20 ثانية لضمان التحميل الكامل
-                finish_btn.click(timeout=10000)
-                signup_page.wait_for_timeout(6000)
-                send_progress_photo(signup_page, chat_id, "📸 [6] تم الضغط على زر (Finish Sign-Up) بنجاح.")
-            except Exception as e:
-                # محاولة بديلة في حال اختلاف التسمية
-                try:
-                    signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue")').first.click(timeout=10000)
-                    signup_page.wait_for_timeout(6000)
-                    send_progress_photo(signup_page, chat_id, "📸 [6-بديل] تم الضغط على زر المتابعة.")
-                except Exception as ex:
-                    bot.send_message(chat_id, f"⚠️ تعذر الضغط التلقائي على زر Finish Sign-Up: {ex}")
+            # 1. انتظار والضغط على Finish Sign-Up
+            finish_btn = signup_page.locator('button:has-text("Finish Sign-Up"), a:has-text("Finish Sign-Up"), text="Finish Sign-Up"').first
+            finish_btn.wait_for(state="visible", timeout=20000)
+            finish_btn.click(timeout=10000)
+            signup_page.wait_for_timeout(5000)
+            send_progress_photo(signup_page, chat_id, "📸 [6] تم الضغط على (Finish Sign-Up).")
 
-            # تخطي أي صفحة إضافية تظهر بعدها
-            for i in range(1, 3):
-                try:
-                    next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
-                    if next_btn_extra.is_visible(timeout=3000):
-                        next_btn_extra.click()
-                        signup_page.wait_for_timeout(4000)
-                except:
-                    break
+            # 2. انتظار والضغط على Next الأول
+            next_btn_1 = signup_page.locator('button:has-text("Next"), a:has-text("Next")').first
+            next_btn_1.wait_for(state="visible", timeout=20000)
+            next_btn_1.click(timeout=10000)
+            signup_page.wait_for_timeout(5000)
 
-            send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية قبل اختيار فاتورة الهاتف.")
+            # 3. انتظار والضغط على Next الثاني
+            next_btn_2 = signup_page.locator('button:has-text("Next"), a:has-text("Next")').first
+            next_btn_2.wait_for(state="visible", timeout=20000)
+            next_btn_2.click(timeout=10000)
+            signup_page.wait_for_timeout(5000)
+            send_progress_photo(signup_page, chat_id, "📸 [7] تم تخطي صفحات Next.")
 
-            # اختيار فاتورة الهاتف (Add to mobile bill)
-            bot.send_message(chat_id, "⏳ جاري اختيار (إضافة إلى فاتورة الهاتف المحمول)...")
-            try:
-                mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
-                mobile_bill_option.click(timeout=10000)
-                signup_page.wait_for_timeout(4000)
-                send_progress_photo(signup_page, chat_id, "📸 [8] تم تحديد خيار (فاتورة الهاتف).")
-                
-                next_btn2 = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
-                if next_btn2.is_visible(timeout=3000):
-                    next_btn2.click()
-                    signup_page.wait_for_timeout(4000)
-                    send_progress_photo(signup_page, chat_id, "📸 [9] تم الضغط على التالي بعد اختيار الوسيلة.")
-            except Exception:
-                signup_page.keyboard.press("Enter")
-                signup_page.wait_for_timeout(3000)
+            # 4. الضغط على Add to mobile bill
+            mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill")').last
+            mobile_bill_option.wait_for(state="visible", timeout=20000)
+            mobile_bill_option.click(timeout=10000)
+            signup_page.wait_for_timeout(5000)
+            send_progress_photo(signup_page, chat_id, "📸 [8] تم تحديد خيار (Add to mobile bill).")
 
+            # حلقة لتكرار عملية الهاتف في حال طلب المستخدم تغيير الرقم
             while True:
-                send_progress_photo(signup_page, chat_id, "📸 [10] صفحة إدخال رقم الهاتف جاهزة.")
+                # 5. انتظار والضغط على خانة Mobile number
+                phone_input = signup_page.locator('input[placeholder*="Mobile number"], input[type="tel"], input[name="phoneNumber"]').first
+                phone_input.wait_for(state="visible", timeout=20000)
+                phone_input.click(timeout=5000)
                 
+                send_progress_photo(signup_page, chat_id, "📸 [9] صفحة إدخال رقم الهاتف جاهزة.")
+                
+                # 6. البوت يطلب الرقم
                 bot.send_message(chat_id, "📱 **مطلوب رقم الهاتف:**\n\nأرسل رقم الهاتف الآن في رسالة عادية (البوت سينتظرك لمدة 3 دقائق)...", parse_mode="Markdown")
                 
                 USER_STATE["waiting_for"] = "phone"
@@ -291,29 +279,40 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 phone_num = USER_STATE["input_data"]
                 USER_STATE["waiting_for"] = None 
                 
+                # 7. وضع الرقم في الخانة
                 bot.send_message(chat_id, f"⏳ جاري إدخال الرقم `{phone_num}` والموافقة على الشروط...")
-                try:
-                    phone_input = signup_page.locator('input[type="tel"], input[name="phoneNumber"]').first
-                    phone_input.fill(phone_num)
-                    signup_page.wait_for_timeout(1000)
-                    
-                    agree_checkbox = signup_page.locator('input[type="checkbox"]').first
-                    agree_checkbox.check(force=True)
-                    signup_page.wait_for_timeout(1000)
-                    
-                    send_progress_photo(signup_page, chat_id, "📸 [11] تم إدخال الرقم وتحديد المربع.")
-                    
-                    verify_btn = signup_page.locator(':is(button, a):has-text("Verify Phone Number"), :is(button, a):has-text("التحقق")').first
-                    verify_btn.click(timeout=10000)
-                    signup_page.wait_for_timeout(6000)
-                except Exception as e:
-                    pass
-
-                send_progress_photo(signup_page, chat_id, "📸 [12] صفحة إدخال الكود (OTP) جاهزة.")
+                phone_input.fill("") # تفريغ الخانة في حال كان هناك رقم سابق
+                phone_input.fill(phone_num)
+                signup_page.wait_for_timeout(1000)
                 
+                # 8. الضغط على مربع I agree
+                agree_checkbox = signup_page.locator('input[type="checkbox"]').first
+                try:
+                    agree_checkbox.check(force=True)
+                except:
+                    agree_checkbox.click(force=True)
+                signup_page.wait_for_timeout(1000)
+                
+                send_progress_photo(signup_page, chat_id, "📸 [10] تم إدخال الرقم وتحديد مربع (I agree).")
+                
+                # 9. الضغط على Verify Phone Number
+                verify_btn = signup_page.locator('button:has-text("Verify Phone Number"), a:has-text("Verify Phone Number")').first
+                verify_btn.click(timeout=10000)
+                signup_page.wait_for_timeout(7000)
+
+                # 10. انتظار خانة Enter code here
+                otp_input = signup_page.locator('input[placeholder*="Enter code here"], input[type="text"], input[name="code"]').first
+                try:
+                    otp_input.wait_for(state="visible", timeout=20000)
+                except Exception:
+                    pass
+                
+                send_progress_photo(signup_page, chat_id, "📸 [11] صفحة إدخال الكود (OTP) جاهزة.")
+                
+                # 11. البوت يطلب الكود + زر تغيير الرقم
                 markup = InlineKeyboardMarkup()
                 markup.add(InlineKeyboardButton("🔄 تغيير رقم الهاتف", callback_data="change_phone_number"))
-                bot.send_message(chat_id, "🔢 **مطلوب كود التفعيل:**\n\nأرسل الكود (4 أرقام) في رسالة عادية الآن...", reply_markup=markup, parse_mode="Markdown")
+                bot.send_message(chat_id, "🔢 **مطلوب كود التفعيل:**\n\nأرسل الكود في رسالة عادية الآن...", reply_markup=markup, parse_mode="Markdown")
                 
                 USER_STATE["waiting_for"] = "otp"
                 USER_STATE["input_data"] = None
@@ -327,35 +326,39 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     
                 USER_STATE["waiting_for"] = None 
                 
+                # تفعيل أمر تغيير رقم الهاتف والعودة للصفحة السابقة
                 if USER_STATE["change_phone"]:
-                    bot.send_message(chat_id, "🔄 جاري العودة لصفحة رقم الهاتف...")
+                    bot.send_message(chat_id, "🔄 جاري العودة لصفحة رقم الهاتف لاستبداله...")
                     try:
-                        change_btn = signup_page.locator(':is(button, a):has-text("Change"), :is(button, a):has-text("تغيير")').first
-                        change_btn.click()
-                        signup_page.wait_for_timeout(4000)
+                        # نتفلكس عادة توفر زر Change
+                        change_btn = signup_page.locator('button:has-text("Change"), a:has-text("Change"), text="Change"').first
+                        if change_btn.is_visible(timeout=3000):
+                            change_btn.click()
+                        else:
+                            signup_page.go_back()
+                        signup_page.wait_for_timeout(5000)
                     except:
                         signup_page.go_back()
-                        signup_page.wait_for_timeout(4000)
-                    continue 
+                        signup_page.wait_for_timeout(5000)
+                    continue # العودة لبداية الحلقة (إدخال الرقم)
                     
                 otp_code = USER_STATE["input_data"]
                 
+                # ملء الكود
                 bot.send_message(chat_id, f"⏳ جاري إدخال الكود `{otp_code}` وتأكيد الحساب...")
+                otp_input.fill(otp_code)
+                signup_page.wait_for_timeout(1000)
+                send_progress_photo(signup_page, chat_id, "📸 [12] تم كتابة الكود وجاري الضغط على Start Membership.")
+                
+                # 12. الضغط على Start Membership
                 try:
-                    otp_input = signup_page.locator('input[type="text"], input[name="code"], input[name="otp"]').first
-                    otp_input.fill(otp_code)
-                    signup_page.wait_for_timeout(1000)
-                    send_progress_photo(signup_page, chat_id, "📸 [13] تم كتابة الكود وقبل المتابعة.")
-                    
-                    signup_page.keyboard.press("Enter")
-                    signup_page.wait_for_timeout(6000)
-                    
-                    signup_page.keyboard.press("Enter")
-                    signup_page.wait_for_timeout(4000)
+                    start_membership = signup_page.locator('button:has-text("Start Membership"), a:has-text("Start Membership")').first
+                    start_membership.click(timeout=10000)
                 except Exception:
                     signup_page.keyboard.press("Enter")
                     
-                send_progress_photo(signup_page, chat_id, "📸 [14] واجهة الحساب النهائية بعد التفعيل والانتهاء.")
+                signup_page.wait_for_timeout(8000)
+                send_progress_photo(signup_page, chat_id, "📸 [13] واجهة الحساب النهائية بعد التفعيل والانتهاء.")
                 break 
                 
             browser.close()
