@@ -40,6 +40,14 @@ def generate_random_email(length):
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     return f"{username}@5xu.vn"
 
+# --- دالة مساعدة لالتقاط الصور بأمان (بدون أن تسبب انهيار البوت) ---
+def send_progress_photo(page, chat_id, caption):
+    try:
+        screenshot_bytes = page.screenshot(full_page=True, timeout=20000)
+        bot.send_photo(chat_id, screenshot_bytes, caption=caption)
+    except Exception:
+        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ تعذر تحميل الصورة بسبب بطء البروكسي، لكن العملية مستمرة بنجاح...)*", parse_mode="Markdown")
+
 # --- دالة التقاط الصورة العادية ---
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=5):
     last_error = ""
@@ -63,11 +71,10 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
                 context = browser.new_context(**context_options)
                 page = context.new_page()
                 
-                # استخدام domcontentloaded لمنع خطأ Timeout بسبب بطء تحميل الصور
                 page.goto(target_url, timeout=30000, wait_until="domcontentloaded")
                 page.wait_for_timeout(3000)
                 
-                screenshot_bytes = page.screenshot(full_page=True, timeout=10000)
+                screenshot_bytes = page.screenshot(full_page=True, timeout=30000)
                 
                 if session_file:
                     context.storage_state(path=session_file)
@@ -88,7 +95,7 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
             
     return None, last_error
 
-# --- دالة أتمتة التسجيل (تم دعم Send Link و Resend Link) ---
+# --- دالة أتمتة التسجيل ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
         with sync_playwright() as p:
@@ -110,68 +117,65 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             bot.send_message(chat_id, "⏳ الخطوة 1: جاري فتح صفحة نتفلكس الأساسية...")
             netflix_page.goto("https://www.netflix.com/", timeout=30000, wait_until="domcontentloaded")
             netflix_page.wait_for_timeout(3000)
-            bot.send_photo(chat_id, netflix_page.screenshot(full_page=True, timeout=10000), caption="📸 الخطوة 1: هكذا تبدو نتفلكس الآن قبل كتابة الإيميل.")
+            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 1: هكذا تبدو نتفلكس الآن قبل كتابة الإيميل.")
             
             # --- الخطوة 2: كتابة الإيميل ---
             bot.send_message(chat_id, f"⏳ الخطوة 2: جاري كتابة الإيميل `{email}`...")
             email_input = netflix_page.locator("input[name='email'], input[type='email'], [placeholder*='Email']").first
             email_input.fill(email)
             netflix_page.wait_for_timeout(1000)
-            bot.send_photo(chat_id, netflix_page.screenshot(full_page=True, timeout=10000), caption="📸 الخطوة 2: تم إدخال الإيميل بنجاح.")
+            send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: تم إدخال الإيميل بنجاح.")
             
-            # --- الخطوة 3: الضغط على زر (Try) وتخطي كل الصفحات (Send Link و Resend) ---
+            # --- الخطوة 3: الضغط على زر (Try) وتخطي الصفحات ---
             bot.send_message(chat_id, "⏳ الخطوة 3: جاري الضغط على بدء الفترة وتخطي صفحات (Send / Resend)...")
             
             try:
                 try_btn = netflix_page.locator(':is(button, a):has-text("Days for USD 0"), :is(button, a):has-text("Try 30 Days"), :is(button, a):has-text("Try 14 Days"), :is(button, a):has-text("Try 7 Days")').first
-                if try_btn.is_visible(timeout=3000):
-                    try_btn.click(timeout=5000)
+                if try_btn.is_visible(timeout=5000):
+                    try_btn.click(timeout=10000)
                 else:
-                    netflix_page.locator("button[type='submit'], button[role='button']").first.click(timeout=5000)
+                    netflix_page.locator("button[type='submit'], button[role='button']").first.click(timeout=10000)
             except:
-                netflix_page.locator("button[type='submit']").first.click(timeout=5000)
+                netflix_page.locator("button[type='submit']").first.click(timeout=10000)
                 
             netflix_page.wait_for_timeout(4000)
             
-            # حلقة تكرار ذكية جديدة للتعرف على أزرار إرسال الرابط وإعادة الإرسال
             for i in range(1, 6):
                 try:
-                    # يتم البحث عن زر "إعادة الإرسال" أو "إرسال الرابط" أو "التالي"
                     next_btn = netflix_page.locator(':is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال"), :is(button, a):has-text("Send Link"), :is(button, a):has-text("إرسال الرابط"), :is(button, a):has-text("Next"), :is(button, a):has-text("Continue"), :is(button, a):has-text("التالي"), :is(button, a):has-text("متابعة")').first
                     
-                    if next_btn.is_visible(timeout=4000):
+                    if next_btn.is_visible(timeout=5000):
                         btn_text = next_btn.inner_text().strip().lower()
-                        next_btn.click(timeout=5000)
+                        next_btn.click(timeout=10000)
                         netflix_page.wait_for_timeout(4000)
                         
-                        bot.send_photo(chat_id, netflix_page.screenshot(full_page=True, timeout=10000), caption=f"📸 تم الضغط على الزر وتخطي الصفحة (رقم {i})...")
+                        send_progress_photo(netflix_page, chat_id, f"📸 تم الضغط على الزر وتخطي الصفحة (رقم {i})...")
                         
-                        # بمجرد أن يجد البوت أنه ضغط على "Resend Link"، سيتوقف عن البحث وينتقل للإيميل فوراً
                         if "resend" in btn_text or "إعادة" in btn_text:
                             bot.send_message(chat_id, "✅ تم الوصول إلى (Resend Link) والضغط عليه بنجاح! ننتقل الآن للإيميل...")
                             break
                     else:
-                        break # لا يوجد المزيد من الأزرار
+                        break 
                 except Exception:
                     break
                     
-            bot.send_photo(chat_id, netflix_page.screenshot(full_page=True, timeout=10000), caption="📸 نهاية الخطوة 3: شكل الصفحة النهائي في نتفلكس.")
+            send_progress_photo(netflix_page, chat_id, "📸 نهاية الخطوة 3: شكل الصفحة النهائي في نتفلكس.")
             
-            # حفظ تقدم نتفلكس
-            context.storage_state(path=session_file)
-            netflix_page.screenshot(path=image_file, full_page=True)
+            try:
+                context.storage_state(path=session_file)
+                netflix_page.screenshot(path=image_file, full_page=True, timeout=20000)
+            except:
+                pass
             
             # --- الخطوة 4: فتح موقع البريد ---
             bot.send_message(chat_id, "⏳ الخطوة 4: جاري الانتقال لموقع البريد لاستلام الرسالة...")
             email_page = context.new_page()
             
-            # استخدام domcontentloaded لتجنب خطأ 30000ms هنا أيضاً
             email_page.goto(f"https://generator.email/inbox9/{email}", timeout=30000, wait_until="domcontentloaded")
             email_page.wait_for_timeout(8000) 
             
-            bot.send_photo(chat_id, email_page.screenshot(full_page=True, timeout=10000), caption="📸 الخطوة 4: شكل صندوق البريد الوارد بعد الانتظار.")
+            send_progress_photo(email_page, chat_id, "📸 الخطوة 4: شكل صندوق البريد الوارد بعد الانتظار.")
             
-            # استخراج الروابط
             links = email_page.evaluate("""() => {
                 return Array.from(document.querySelectorAll('a')).map(a => a.href);
             }""")
@@ -188,10 +192,6 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             
     except Exception as e:
         error_msg = str(e)
-        try:
-            bot.send_photo(chat_id, context.pages[-1].screenshot(full_page=True, timeout=5000), caption="⚠️ صورة الصفحة وقت حدوث الانهيار!")
-        except:
-            pass
         return False, error_msg
 
 # --- لوحة المفاتيح الرئيسية ---
