@@ -41,12 +41,37 @@ USER_STATE = {
     "input_data": None,
     "input_event": threading.Event(),
     "change_phone": False,
-    "cancel_flow": False # تمت إضافة متغير الإلغاء هنا
+    "cancel_flow": False
 }
 
-def generate_random_email(length):
-    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
-    return f"{username}@5xu.vn"
+# 🔹 الكوكيز الثابتة لتجميد عرض 30 يوم 🔹
+RAW_COOKIES = [
+  {"name": "flwssn", "value": "b2cdd378-f151-4ae8-bc62-a3f304f10265", "domain": ".netflix.com", "path": "/", "expires": 1786557170.196962, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
+  {"name": "gsid", "value": "31793dad-378b-4b3f-a31d-6830273a78f5", "domain": ".netflix.com", "path": "/", "expires": 1786632766.470792, "httpOnly": True, "secure": True, "sameSite": "no_restriction"},
+  {"name": "netflix-sans-bold-3-loaded", "value": "true", "domain": ".netflix.com", "path": "/", "expires": 1794322370.19694, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
+  {"name": "netflix-sans-normal-3-loaded", "value": "true", "domain": ".netflix.com", "path": "/", "expires": 1794322370.196915, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
+  {"name": "NetflixId", "value": "v%3D3%26ct%3DBgjHlOvcAxKrAsPHtSnrZ9GKORSMuemrTl8covHfrSmMHg1VM44L77Jrwx2uMz07p6sVGf_wgQ347NiE9t-E6u6b1UIjzpLBZj3RK-K12h2a9fOSlqkzKuknBnpr9jq_r_CA258gC-GIMbcVrrpesjVwF_PFBsXdBEvXRpBITMlUtc9t8ZYnmXJhc-UYji_EIctXdNnTV58Q5z2C4uu0_UeYZdSjHfJ7kaWwoiTq4gXly5kgGIL3lYyLGIuI64ektCOwtw56c3xeAxi347qIWa9yUJu98ag5MFObpYDnt7dtyb_t1sWrLejZLVFlmRH3O1tvrGNQ1Gg1YWtu8M2UyONPETTUIk03-XuwOeq38x38W5yhRkQERjLBXMxxfEE2riISV__maFrywZ0aM2XKOy121xIUGAYiDgoMWP4bq858s_MFPNW8", "domain": ".netflix.com", "path": "/", "expires": 1818082366.470752, "httpOnly": False, "secure": True, "sameSite": "lax"},
+  {"name": "nfvdid", "value": "BQFmAAEBEFG3E8P1gRYF0CWTHucUHvRAr4WoXZoXMCJsHpmZWCwV23Wvz4jL7B_S3wcmhclGbFwicS-7sV38gw0R4uqceBim1JQ-_tiQJZ0wUNES6bl9Yw%3D%3D", "domain": ".netflix.com", "path": "/", "expires": 1817250051.048752, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
+  {"name": "nkufi-bold-4-loaded", "value": "true", "domain": ".netflix.com", "path": "/", "expires": 1794322370.19689, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
+  {"name": "nkufi-normal-4-loaded", "value": "true", "domain": ".netflix.com", "path": "/", "expires": 1794322370.196801, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
+  {"name": "OptanonConsent", "value": "isGpcEnabled=0&datestamp=Wed+Aug+12+2026+17%3A52%3A50+GMT%2B0300+(%D8%A7%D9%84%D8%AA%D9%88%D9%82%D9%8A%D8%AA+%D8%A7%D9%84%D8%B9%D8%B1%D8%A8%D9%8A+%D8%A7%D9%84%D8%B1%D8%B3%D9%85%D9%8A)&version=202604.2.0&browserGpcFlag=0&isDntEnabled=0&isIABGlobal=false&hosts=&consentId=64d3de31-d011-461b-9a7e-f01a992fcfb5&interactionCount=1&isAnonUser=1&prevHadToken=0&landingPath=NotLandingPage&groups=C0001%3A1%2CC0002%3A1%2CC0003%3A1%2CC0004%3A1&crTime=1785714057627&AwaitingReconsent=false", "domain": ".netflix.com", "path": "/", "expires": 1818082370, "httpOnly": False, "secure": False, "sameSite": "lax"},
+  {"name": "OTSessionTracking", "value": "87b6a5c0-0104-4e96-a291-092c11350111", "domain": "www.netflix.com", "path": "/", "expires": 1786632769, "httpOnly": False, "secure": False, "sameSite": "lax"},
+  {"name": "SecureNetflixId", "value": "v%3D3%26mac%3DAQEAEQABABQrKG3XWM4a01dvho67JcWEdpgOEh3Iqnw.%26dt%3D1786546366150", "domain": ".netflix.com", "path": "/", "expires": 1818082366.470711, "httpOnly": False, "secure": True, "sameSite": "strict"}
+]
+
+def sanitize_cookies(cookies):
+    clean = []
+    for c in cookies:
+        nc = {"name": c["name"], "value": c["value"], "domain": c["domain"], "path": c["path"]}
+        if "expires" in c: nc["expires"] = float(c["expires"])
+        if "httpOnly" in c: nc["httpOnly"] = c["httpOnly"]
+        if "secure" in c: nc["secure"] = c["secure"]
+        if "sameSite" in c:
+            ss = c["sameSite"].lower()
+            if ss in ["lax", "strict", "none"]: nc["sameSite"] = ss.capitalize()
+            elif ss == "no_restriction": nc["sameSite"] = "None"
+        clean.append(nc)
+    return clean
 
 def apply_stealth(page):
     if stealth_sync:
@@ -54,17 +79,17 @@ def apply_stealth(page):
     else:
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-def safely_goto(page, url, timeout=40000):
+def safely_goto(page, url, timeout=60000):
     try:
-        page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+        # استخدام load بدلاً من domcontentloaded لمنع الشاشة البيضاء تماماً
+        page.goto(url, timeout=timeout, wait_until="load")
     except Exception:
         pass 
     page.wait_for_timeout(4000)
 
-# دالة التقاط الصور مع وقت استقرار كافٍ لمنع الشاشة البيضاء
 def send_progress_photo(page, chat_id, caption):
     try:
-        page.wait_for_timeout(3000) # وقت كافٍ لتحميل عناصر الصفحة تماماً
+        page.wait_for_timeout(2000) # وقت استقرار ممتاز للصورة
         screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
     except Exception as e:
@@ -77,33 +102,6 @@ def handle_interactive_input(message):
     USER_STATE["input_data"] = message.text.strip()
     USER_STATE["input_event"].set()
     bot.send_message(message.chat.id, "✅ تم استلام الإدخال، جاري تطبيقه في المتصفح الآن...")
-
-def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=3):
-    for attempt in range(1, max_retries + 1):
-        try:
-            with sync_playwright() as p:
-                browser = p.firefox.launch(
-                    headless=True,
-                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
-                )
-                context_options = {'viewport': {'width': 1280, 'height': 720}, 'ignore_https_errors': True}
-                if session_file and os.path.exists(session_file):
-                    context_options['storage_state'] = session_file
-                
-                context = browser.new_context(**context_options)
-                page = context.new_page()
-                apply_stealth(page) 
-                safely_goto(page, target_url)
-                screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
-                
-                if session_file: context.storage_state(path=session_file)
-                if image_file:
-                    with open(image_file, 'wb') as f: f.write(screenshot_bytes)
-                browser.close()
-                return screenshot_bytes, "Success"
-        except Exception:
-            time.sleep(2)
-    return None, "فشل الاتصال."
 
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
@@ -118,15 +116,16 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 context_options['storage_state'] = session_file
                 
             context = browser.new_context(**context_options)
+            context.add_cookies(sanitize_cookies(RAW_COOKIES))
+            
             netflix_page = context.new_page()
             apply_stealth(netflix_page)
             
-            # --- الخطوة 1: الفتح ---
-            bot.send_message(chat_id, "⏳ جاري تنفيذ المسار الناجح (فايرفوكس المخفي)...")
+            # --- المرحلة 1: التسجيل المبدئي ---
+            bot.send_message(chat_id, "⏳ جاري فتح صفحة نتفلكس بالكوكيز الجديدة...")
             safely_goto(netflix_page, "https://www.netflix.com/login")
             send_progress_photo(netflix_page, chat_id, "📸 [1] تم فتح صفحة نتفلكس الرئيسية.")
             
-            # --- الخطوة 2: الإيميل ---
             try:
                 email_input = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                 if email_input.is_visible(timeout=5000):
@@ -139,30 +138,33 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 pass
             
             try:
-                continue_btn = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Next"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Get Started"), :is(button, a):has-text("Days for USD 0")').first
+                continue_btn = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Next"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي"), button[type="submit"]').first
                 if continue_btn.is_visible(timeout=3000):
                     continue_btn.hover()
                     netflix_page.wait_for_timeout(500)
-                    continue_btn.click(timeout=10000)
+                    continue_btn.click(force=True, timeout=10000)
                 else:
                     email_input.press("Enter")
             except:
                 try: email_input.press("Enter")
                 except: pass
                 
+            netflix_page.wait_for_timeout(1000)
+            try: netflix_page.keyboard.press("Enter")
+            except: pass
+            
             netflix_page.wait_for_timeout(7000)
-            send_progress_photo(netflix_page, chat_id, "📸 [2] الصفحة بعد إدخال الإيميل.")
+            send_progress_photo(netflix_page, chat_id, "📸 [2] الصفحة بعد إدخال الإيميل والمحاولة.")
             
             try:
                 error_msg = netflix_page.locator('text="Something went wrong"').first
                 if error_msg.is_visible(timeout=3000):
                     send_progress_photo(netflix_page, chat_id, "📸 [تحذير] ظهر الخطأ الأحمر، جاري التحديث...")
-                    netflix_page.reload(timeout=60000, wait_until="domcontentloaded")
+                    netflix_page.reload(timeout=60000, wait_until="load")
                     netflix_page.wait_for_timeout(5000)
             except:
                 pass
                 
-            # --- الخطوة 3: التحقق وتخطي الصفحات ---
             for i in range(1, 5):
                 try:
                     success_target = netflix_page.locator(':is(:text("Tap the link in your email")), :is(:text("resend it")), :is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
@@ -190,7 +192,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 except Exception:
                     break
             
-            # --- الخطوة 4: صندوق البريد ---
+            # --- صندوق البريد ---
             bot.send_message(chat_id, "⏳ ننتقل للبريد لاستخراج رابط (إكمال التسجيل)...")
             chrome_browser = p.chromium.launch(
                 headless=True,
@@ -218,37 +220,43 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 chrome_browser.close()
                 return True, {"links": netflix_links, "text": "لم يتم العثور على رابط epr."}
 
-            bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط في المتصفح...")
+            bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط بانتظار بطيء لمنع الشاشة البيضاء...")
             
             # -------------------------------------------------------------
-            # 🔥 المرحلة الثانية: التعامل مع صفحة Finish Sign-Up مباشرة 🔥
+            # 🔥 المرحلة الثانية: فتح رابط epr وإكمال التسجيل 🔥
             # -------------------------------------------------------------
             signup_page = context.new_page()
             apply_stealth(signup_page)
-            safely_goto(signup_page, epr_link)
             
-            send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
+            # استخدام load لضمان عدم التقاط صورة إلا بعد تحميل الصفحة بالكامل
+            safely_goto(signup_page, epr_link, timeout=60000)
+            signup_page.wait_for_timeout(6000) 
 
+            # 🔥 الانتظار الذكي لزر Finish لمنع الشاشة البيضاء 🔥
+            finish_btn = signup_page.locator(':is(button, a):has-text("Finish"), :is(button, a):has-text("إكمال")').first
             try:
-                finish_btn = signup_page.locator('text="Finish Sign-Up"').first
-                finish_btn.wait_for(state="visible", timeout=20000) 
-                finish_btn.click(timeout=10000)
+                # ننتظر الزر حتى 20 ثانية، هذا يضمن أن الصورة [5] ستكون دائماً حقيقية وليست بيضاء
+                finish_btn.wait_for(state="visible", timeout=20000)
+                send_progress_photo(signup_page, chat_id, "📸 [5] تم تحميل رابط إكمال التسجيل بنجاح (ظهر الزر).")
+                
+                finish_btn.click(force=True, timeout=10000)
                 signup_page.wait_for_timeout(6000)
                 send_progress_photo(signup_page, chat_id, "📸 [6] تم الضغط على زر (Finish Sign-Up) بنجاح.")
             except Exception as e:
-                try:
-                    signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue")').first.click(timeout=10000)
-                    signup_page.wait_for_timeout(6000)
-                    send_progress_photo(signup_page, chat_id, "📸 [6-بديل] تم الضغط على زر المتابعة.")
-                except Exception as ex:
-                    pass
+                send_progress_photo(signup_page, chat_id, "📸 [5-تحذير] تعذر إيجاد زر Finish أو الصفحة بيضاء، سنحاول المتابعة...")
+                signup_page.keyboard.press("Enter")
+                signup_page.wait_for_timeout(5000)
 
-            for i in range(1, 3):
+            # تخطي صفحات Next
+            for i in range(1, 4):
                 try:
                     next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
-                    if next_btn_extra.is_visible(timeout=3000):
-                        next_btn_extra.click()
-                        signup_page.wait_for_timeout(4000)
+                    if next_btn_extra.is_visible(timeout=4000):
+                        next_btn_extra.click(force=True)
+                        signup_page.wait_for_timeout(5000)
+                        send_progress_photo(signup_page, chat_id, f"📸 [تخطي] تم الضغط على التالي ({i}).")
+                    else:
+                        break
                 except:
                     break
 
@@ -270,14 +278,11 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 signup_page.keyboard.press("Enter")
                 signup_page.wait_for_timeout(3000)
 
-            # --- حلقة طلب وتأكيد رقم الهاتف والكود ---
             while True:
                 send_progress_photo(signup_page, chat_id, "📸 [10] صفحة إدخال رقم الهاتف جاهزة.")
                 
-                # إضافة زر الإلغاء تحت طلب الرقم
                 markup_phone = InlineKeyboardMarkup()
                 markup_phone.add(InlineKeyboardButton("❌ إلغاء العملية", callback_data="cancel_operation"))
-                
                 bot.send_message(chat_id, "📱 **مطلوب رقم الهاتف:**\n\nأرسل رقم الهاتف الآن في رسالة عادية (البوت سينتظرك لمدة 3 دقائق)...", reply_markup=markup_phone, parse_mode="Markdown")
                 
                 USER_STATE["waiting_for"] = "phone"
@@ -286,16 +291,10 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 USER_STATE["change_phone"] = False
                 USER_STATE["cancel_flow"] = False
                 
-                # انتظار إدخال الرقم أو ضغط زر الإلغاء
-                if not USER_STATE["input_event"].wait(timeout=180):
+                if not USER_STATE["input_event"].wait(timeout=180) or USER_STATE["cancel_flow"]:
                     browser.close()
                     chrome_browser.close()
-                    return False, "انتهى وقت الانتظار لرقم الهاتف (3 دقائق)."
-                
-                if USER_STATE["cancel_flow"]:
-                    browser.close()
-                    chrome_browser.close()
-                    return False, "تم إلغاء العملية بناءً على طلبك."
+                    return False, "تم إلغاء العملية أو انتهى وقت الانتظار."
                     
                 phone_num = USER_STATE["input_data"]
                 USER_STATE["waiting_for"] = None 
@@ -306,17 +305,13 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     phone_input.fill(phone_num)
                     signup_page.wait_for_timeout(1000)
                     
-                    # 🔥 تحديد مربع I agree بشكل مضمون 🔥
                     try:
-                        signup_page.locator('input[type="checkbox"]').last.check(force=True)
+                        signup_page.locator('text="I agree"').click(force=True)
                     except:
-                        try:
-                            signup_page.locator('text="I agree"').click(force=True)
-                        except:
-                            pass
-                            
+                        signup_page.locator('input[type="checkbox"]').last.check(force=True)
                     signup_page.wait_for_timeout(1000)
-                    send_progress_photo(signup_page, chat_id, "📸 [11] تم إدخال الرقم وتحديد مربع I agree.")
+                    
+                    send_progress_photo(signup_page, chat_id, "📸 [11] تم إدخال الرقم وتحديد مربع (I agree).")
                     
                     verify_btn = signup_page.locator(':is(button, a):has-text("Verify Phone Number"), :is(button, a):has-text("التحقق")').first
                     verify_btn.click(timeout=10000)
@@ -326,7 +321,6 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
 
                 send_progress_photo(signup_page, chat_id, "📸 [12] صفحة إدخال الكود (OTP) جاهزة.")
                 
-                # إضافة زر التغيير وزر الإلغاء تحت طلب الكود
                 markup_otp = InlineKeyboardMarkup()
                 markup_otp.row(InlineKeyboardButton("🔄 تغيير رقم الهاتف", callback_data="change_phone_number"))
                 markup_otp.row(InlineKeyboardButton("❌ إلغاء العملية", callback_data="cancel_operation"))
@@ -338,22 +332,15 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 USER_STATE["change_phone"] = False
                 USER_STATE["cancel_flow"] = False
                 
-                # انتظار إدخال الكود أو ضغط أحد الأزرار
-                if not USER_STATE["input_event"].wait(timeout=180):
-                    browser.close()
-                    chrome_browser.close()
-                    return False, "انتهى وقت الانتظار للكود (3 دقائق)."
-                    
-                if USER_STATE["cancel_flow"]:
+                if not USER_STATE["input_event"].wait(timeout=180) or USER_STATE["cancel_flow"]:
                     browser.close()
                     chrome_browser.close()
                     return False, "تم إلغاء العملية بناءً على طلبك."
                     
                 USER_STATE["waiting_for"] = None 
                 
-                # 🔥 معالجة العودة وتحديث الصفحة عند تغيير الرقم 🔥
                 if USER_STATE["change_phone"]:
-                    bot.send_message(chat_id, "🔄 جاري الرجوع خطوة للخلف وتحديث الصفحة...")
+                    bot.send_message(chat_id, "🔄 جاري العودة لصفحة رقم الهاتف وتحديثها...")
                     try:
                         change_btn = signup_page.locator(':is(button, a):has-text("Change"), :is(button, a):has-text("تغيير")').first
                         if change_btn.is_visible(timeout=3000):
@@ -364,14 +351,12 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                         signup_page.go_back()
                         
                     signup_page.wait_for_timeout(3000)
-                    
-                    # تحديث الصفحة للحصول على جلسة نظيفة لرقم جديد
                     try:
-                        signup_page.reload(timeout=40000, wait_until="domcontentloaded")
+                        signup_page.reload(timeout=40000, wait_until="load")
                     except:
                         pass
                     signup_page.wait_for_timeout(4000)
-                    continue # العودة لأول الحلقة لطلب الرقم الجديد وتحديد المربع
+                    continue 
                     
                 otp_code = USER_STATE["input_data"]
                 
@@ -456,7 +441,6 @@ def callback_listener(call):
     if not is_admin(user_id):
         return
 
-    # معالجة زر إلغاء العملية
     if call.data == "cancel_operation":
         if USER_STATE["waiting_for"] in ["phone", "otp"]:
             USER_STATE["cancel_flow"] = True
@@ -466,7 +450,6 @@ def callback_listener(call):
             bot.answer_callback_query(call.id, "❌ لا توجد عملية تفاعلية لإلغائها حالياً.", show_alert=True)
         return
 
-    # معالجة زر تغيير رقم الهاتف
     if call.data == "change_phone_number":
         if USER_STATE["waiting_for"] == "otp":
             USER_STATE["change_phone"] = True
