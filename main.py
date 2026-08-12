@@ -41,7 +41,7 @@ def generate_random_email(length):
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     return f"{username}@5xu.vn"
 
-# --- دالة التقاط الصورة باستخدام Playwright ---
+# --- دالة التقاط الصورة العادية ---
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=5):
     last_error = ""
     for attempt in range(1, max_retries + 1):
@@ -88,8 +88,11 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
             
     return None, last_error
 
-# --- دالة أتمتة التسجيل وإدخال الإيميل ---
+# --- دالة أتمتة التسجيل (مع التقاط صورة عند الخطأ) ---
 def execute_netflix_automation(session_file, image_file, email):
+    current_page = None # لتتبع الصفحة الحالية لالتقاط صورة لها عند الخطأ
+    error_screenshot_path = "error_screenshot.png"
+    
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -99,13 +102,15 @@ def execute_netflix_automation(session_file, image_file, email):
             )
             
             context = browser.new_context(
-                storage_state=session_file,
+                storage_state=session_file if os.path.exists(session_file) else None,
                 viewport={'width': 1280, 'height': 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             )
             
             # --- 1. التعامل مع نتفلكس ---
             netflix_page = context.new_page()
+            current_page = netflix_page # تعيين الصفحة الحالية لتصويرها إذا حدث خطأ
+            
             netflix_page.goto("https://www.netflix.com/", timeout=20000, wait_until="load")
             netflix_page.wait_for_timeout(3000)
             
@@ -116,18 +121,19 @@ def execute_netflix_automation(session_file, image_file, email):
             try:
                 netflix_page.locator(':is(button, a):has-text("Try 30 Days for USD 0")').first.click(timeout=5000)
             except:
+                # محاولة بديلة إذا كان شكل الزر مختلفاً
                 netflix_page.locator("button[type='submit']").first.click(timeout=5000)
                 
             netflix_page.wait_for_timeout(4000) # انتظار تحميل الصفحة التالية
             
-            # الضغط على زر التالي / Next
+            # الضغط على زر التالي / Next (اختياري، نتخطاه إذا لم يظهر)
             try:
                 next_btn = netflix_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
                 if next_btn.is_visible():
                     next_btn.click(timeout=5000)
                     netflix_page.wait_for_timeout(4000)
-            except Exception as e:
-                pass # في حال لم يظهر الزر، نستمر
+            except Exception:
+                pass
                 
             # حفظ الجلسة الجديدة والصورة لتبقى الصفحة المثبتة محدثة
             context.storage_state(path=session_file)
@@ -135,6 +141,8 @@ def execute_netflix_automation(session_file, image_file, email):
             
             # --- 2. فتح موقع البريد لاستخراج الرسائل ---
             email_page = context.new_page()
+            current_page = email_page # تغيير التتبع إلى صفحة البريد
+            
             email_page.goto(f"https://generator.email/inbox9/{email}", timeout=30000, wait_until="load")
             
             # إعطاء الموقع 8 ثوانٍ لاستلام الرسالة
@@ -159,7 +167,15 @@ def execute_netflix_automation(session_file, image_file, email):
             return True, {"links": netflix_links, "text": extracted_text}
             
     except Exception as e:
-        return False, str(e)
+        # 🛑 التقاط صورة لحظة حدوث الخطأ 🛑
+        captured_path = None
+        if current_page:
+            try:
+                current_page.screenshot(path=error_screenshot_path, full_page=True)
+                captured_path = error_screenshot_path
+            except:
+                pass
+        return False, {"error": str(e), "screenshot": captured_path}
 
 # --- لوحة المفاتيح الرئيسية ---
 def main_keyboard():
@@ -181,7 +197,7 @@ def main_keyboard():
         markup.add(btn_change_netflix, btn_toggle_logout)
         markup.add(btn_screenshot_new, btn_screenshot_pinned)
         markup.add(btn_auto)
-        markup.row(btn_minus, btn_length_info, btn_plus) # أزرار التحكم جنباً إلى جنب
+        markup.row(btn_minus, btn_length_info, btn_plus)
     else:
         btn_screenshot = InlineKeyboardButton("📸 الدخول إلى الرابط (Clear Cookies)", callback_data="take_screenshot")
         markup.add(btn_change_netflix, btn_toggle_logout, btn_screenshot)
@@ -253,12 +269,10 @@ def callback_listener(call):
             bot.delete_message(chat_id, call.message.message_id)
             
             if success:
-                # إرسال الصورة المحدثة لنتفلكس
                 if os.path.exists(USER_STATE["pinned_image"]):
                     with open(USER_STATE["pinned_image"], "rb") as img:
                         bot.send_photo(chat_id, img, caption="📸 صورة نتفلكس بعد إدخال الإيميل وتخطي الصفحة:")
                 
-                # تجميع الروابط والنص المستخرج
                 links_text = "\n".join(result["links"]) if result["links"] else "⚠️ لم يتم العثور على روابط نتفلكس في الرسالة."
                 msg = (f"✅ **اكتملت الأتمتة بنجاح!**\n\n"
                        f"📧 **الإيميل:** `{target_email}`\n\n"
@@ -267,7 +281,18 @@ def callback_listener(call):
                        
                 bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=main_keyboard())
             else:
-                bot.send_message(chat_id, f"❌ حدث خطأ أثناء الأتمتة:\n`{result}`", reply_markup=main_keyboard(), parse_mode="Markdown")
+                # 🛑 معالجة الخطأ وإرسال الصورة 🛑
+                error_msg = result.get("error", "Unknown Error")
+                screenshot_path = result.get("screenshot")
+                
+                caption = f"❌ حدث خطأ أثناء الأتمتة:\n`{error_msg}`\n\nهذه صورة للصفحة لحظة توقف البوت لمعرفة السبب 👇"
+                
+                if screenshot_path and os.path.exists(screenshot_path):
+                    with open(screenshot_path, "rb") as img:
+                        bot.send_photo(chat_id, img, caption=caption, parse_mode="Markdown", reply_markup=main_keyboard())
+                    os.remove(screenshot_path) # تنظيف الصورة بعد إرسالها
+                else:
+                    bot.send_message(chat_id, caption, reply_markup=main_keyboard(), parse_mode="Markdown")
 
         threading.Thread(target=run_automation).start()
 
