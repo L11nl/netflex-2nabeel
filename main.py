@@ -40,7 +40,6 @@ def generate_random_email(length):
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     return f"{username}@5xu.vn"
 
-# --- دالة التقاط الصورة العادية ---
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=5):
     last_error = ""
     for attempt in range(1, max_retries + 1):
@@ -87,7 +86,7 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
             
     return None, last_error
 
-# --- دالة أتمتة التسجيل (ترسل الصور خطوة بخطوة للتليجرام) ---
+# --- دالة أتمتة التسجيل (مع حلقة تكرار لتخطي الصفحات المتعددة) ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
         with sync_playwright() as p:
@@ -113,32 +112,35 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             
             # --- الخطوة 2: كتابة الإيميل ---
             bot.send_message(chat_id, f"⏳ الخطوة 2: جاري كتابة الإيميل `{email}`...")
-            # استخدام كود أقوى للبحث عن الخانة تحسباً لتغير اللغة أو الشكل
             email_input = netflix_page.locator("input[name='email'], input[type='email'], [placeholder*='Email']").first
             email_input.fill(email)
             netflix_page.wait_for_timeout(1000)
             bot.send_photo(chat_id, netflix_page.screenshot(full_page=True, timeout=10000), caption="📸 الخطوة 2: تم إدخال الإيميل في الخانة بنجاح.")
             
-            # --- الخطوة 3: الضغط على زر المتابعة ---
-            bot.send_message(chat_id, "⏳ الخطوة 3: جاري الضغط على زر المتابعة...")
+            # --- الخطوة 3: الضغط على زر المتابعة وتخطي الصفحات المتعددة ---
+            bot.send_message(chat_id, "⏳ الخطوة 3: جاري الضغط على زر المتابعة والتحقق من وجود صفحات إضافية...")
             try:
                 netflix_page.locator(':is(button, a):has-text("Try 30 Days for USD 0")').first.click(timeout=5000)
             except:
-                # إذا لم يجد زر 30 يوم، سيضغط على أي زر إرسال موجود بجانب الإيميل
                 netflix_page.locator("button[type='submit'], button[role='button']").first.click(timeout=5000)
                 
             netflix_page.wait_for_timeout(4000)
             
-            # محاولة الضغط على زر "التالي" إن ظهر
-            try:
-                next_btn = netflix_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
-                if next_btn.is_visible():
-                    next_btn.click(timeout=5000)
-                    netflix_page.wait_for_timeout(4000)
-            except:
-                pass
-                
-            bot.send_photo(chat_id, netflix_page.screenshot(full_page=True, timeout=10000), caption="📸 الخطوة 3: شكل الصفحة بعد الضغط على أزرار المتابعة.")
+            # حلقة تكرار للبحث عن أزرار (التالي، متابعة، Next، Continue) حتى 4 مرات بحد أقصى
+            for i in range(1, 5):
+                try:
+                    next_btn = netflix_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("Continue")').first
+                    
+                    if next_btn.is_visible(timeout=3000): # ننتظر 3 ثوانٍ كحد أقصى لظهور الزر
+                        next_btn.click(timeout=5000)
+                        netflix_page.wait_for_timeout(4000) # انتظار تحميل الصفحة التالية
+                        bot.send_photo(chat_id, netflix_page.screenshot(full_page=True, timeout=10000), caption=f"📸 تخطي الصفحة الإضافية رقم {i}...")
+                    else:
+                        break # إذا لم يجد الزر، نكسر الحلقة (وصلنا للنهاية)
+                except Exception:
+                    break
+                    
+            bot.send_photo(chat_id, netflix_page.screenshot(full_page=True, timeout=10000), caption="📸 نهاية الخطوة 3: شكل الصفحة النهائي في نتفلكس بعد تخطي كل الخطوات الممكنة.")
             
             # حفظ تقدم نتفلكس
             context.storage_state(path=session_file)
@@ -168,7 +170,6 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             return True, {"links": netflix_links, "text": extracted_text}
             
     except Exception as e:
-        # إذا حدث خطأ، سيقوم البوت بمحاولة التقاط صورة سريعة قبل إغلاق المتصفح تماماً
         error_msg = str(e)
         try:
             bot.send_photo(chat_id, context.pages[-1].screenshot(full_page=True, timeout=5000), caption="⚠️ صورة الصفحة وقت حدوث الانهيار!")
@@ -246,14 +247,12 @@ def callback_listener(call):
             bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=main_keyboard())
         return
 
-    # --- زر بدء التسجيل والأتمتة ---
     elif call.data == "start_auto":
         target_email = generate_random_email(USER_STATE['email_length'])
         bot.answer_callback_query(call.id, "جاري بدء الأتمتة...")
-        bot.delete_message(chat_id, call.message.message_id) # مسح رسالة القائمة لترتيب الشاشة
+        bot.delete_message(chat_id, call.message.message_id) 
         
         def run_automation():
-            # تمرير الـ chat_id للدالة لتقوم بإرسال الصور
             success, result = execute_netflix_automation(USER_STATE["pinned_session"], USER_STATE["pinned_image"], target_email, chat_id)
             
             if success:
