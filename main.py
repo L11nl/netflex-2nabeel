@@ -4,7 +4,7 @@ import os
 import requests
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 # --- إعدادات البيئة والتوكن (يجب وضعها في المتغيرات في Railway أو الخادم) ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ضع_توكن_البوت_هنا")
@@ -23,38 +23,49 @@ def is_admin(user_id):
     return user_id == ALLOWED_USER_ID
 
 # --- دالة التقاط الصورة باستخدام Playwright مع البروكسي وتخطي الحماية ---
-def take_screenshot_with_proxy(target_url):
-    try:
-        with sync_playwright() as p:
-            # تشغيل المتصفح المخفي مع إضافة خصائص لتخطي كشف البوتات
-            browser = p.chromium.launch(
-                headless=True,
-                proxy={"server": PROXY_SERVER},
-                args=['--disable-blink-features=AutomationControlled'] # إخفاء أن المتصفح آلي
-            )
+def take_screenshot_with_proxy(target_url, max_retries=5):
+    for attempt in range(1, max_retries + 1):
+        print(f"🔄 المحاولة {attempt}: جاري الاتصال بالبروكسي (المهلة 12 ثانية)...")
+        try:
+            with sync_playwright() as p:
+                # تشغيل المتصفح المخفي مع إضافة خصائص لتخطي كشف البوتات
+                browser = p.chromium.launch(
+                    headless=True,
+                    proxy={"server": PROXY_SERVER},
+                    args=['--disable-blink-features=AutomationControlled'] # إخفاء أن المتصفح آلي
+                )
+                
+                # تحديد حجم الشاشة وإضافة User-Agent حقيقي لمتصفح كروم
+                context = browser.new_context(
+                    viewport={'width': 1280, 'height': 720},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                
+                page = context.new_page()
+                
+                # الذهاب إلى الرابط والانتظار (المهلة: 12000 مللي ثانية أي 12 ثانية)
+                # استخدام "load" بدلاً من "networkidle" يمنع التعليق المستمر
+                page.goto(target_url, timeout=12000, wait_until="load")
+                
+                # 🛑 مهم جداً: إجبار البوت على الانتظار 3 ثوانٍ إضافية لضمان تحميل صفحة نتفلكس بالكامل
+                page.wait_for_timeout(3000)
+                
+                # التقاط صورة للشاشة
+                screenshot_bytes = page.screenshot(full_page=True)
+                
+                browser.close()
+                print(f"✅ نجحت المحاولة {attempt} وتم التقاط الصورة.")
+                return screenshot_bytes
+                
+        except PlaywrightTimeoutError:
+            print(f"⚠️ تأخر الرد في المحاولة {attempt} (أكثر من 12 ثانية). جاري تبديل الـ IP...")
+            time.sleep(1) # استراحة قصيرة قبل المحاولة التالية لضمان الحصول على IP جديد
+        except Exception as e:
+            print(f"❌ حدث خطأ في المحاولة {attempt}: {e}")
+            time.sleep(1)
             
-            # تحديد حجم الشاشة وإضافة User-Agent حقيقي لمتصفح كروم
-            context = browser.new_context(
-                viewport={'width': 1280, 'height': 720},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            
-            page = context.new_page()
-            
-            # الذهاب إلى الرابط والانتظار حتى يستقر الاتصال بالشبكة (networkidle)
-            page.goto(target_url, timeout=60000, wait_until="networkidle")
-            
-            # 🛑 مهم جداً: إجبار البوت على الانتظار 3 ثوانٍ إضافية لضمان تحميل صفحة نتفلكس بالكامل
-            page.wait_for_timeout(3000)
-            
-            # التقاط صورة للشاشة
-            screenshot_bytes = page.screenshot(full_page=True)
-            
-            browser.close()
-            return screenshot_bytes
-    except Exception as e:
-        print(f"Error taking screenshot: {e}")
-        return None
+    print("❌ استنفدت جميع المحاولات لفشل البروكسي.")
+    return None
 
 # --- لوحة المفاتيح الرئيسية ---
 def main_keyboard():
@@ -96,7 +107,7 @@ def callback_listener(call):
     if call.data == "take_screenshot":
         bot.answer_callback_query(call.id, "جاري المعالجة...")
         bot.edit_message_text(
-            "⏳ جارٍ العمل... جاري الاتصال بالبروكسي وفتح الرابط...",
+            "⏳ جارٍ العمل... جاري الاتصال بالبروكسي (قد يستغرق بضع محاولات لضمان اتصال سريع)...",
             chat_id, 
             call.message.message_id
         )
@@ -112,7 +123,7 @@ def callback_listener(call):
                 bot.send_message(chat_id, "القائمة الرئيسية:", reply_markup=main_keyboard())
             else:
                 bot.edit_message_text(
-                    "❌ حدث خطأ أثناء محاولة فتح الرابط عبر البروكسي.",
+                    "❌ حدث خطأ أثناء محاولة فتح الرابط أو البروكسي لا يستجيب.\nالرجاء المحاولة مرة أخرى.",
                     chat_id, 
                     call.message.message_id,
                     reply_markup=main_keyboard()
