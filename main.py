@@ -2,6 +2,8 @@ import time
 import threading
 import os
 import shutil
+import random
+import string
 import requests
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -24,27 +26,30 @@ bot = telebot.TeleBot(BOT_TOKEN)
 def is_admin(user_id):
     return user_id == ALLOWED_USER_ID
 
-# 🔹 متغير عام لحفظ حالة الصفحة المثبتة والمنعزلة 🔹
+# 🔹 متغير عام لحفظ حالة الصفحة المثبتة، وملفاتها، وطول الإيميل 🔹
 USER_STATE = {
     "is_pinned": False,
-    "pinned_file": "pinned_session.json",
-    "temp_file": "temp_session.json"
+    "pinned_session": "pinned_session.json",
+    "pinned_image": "pinned_image.png",
+    "temp_session": "temp_session.json",
+    "temp_image": "temp_image.png",
+    "email_length": 5  # طول الأحرف العشوائية الافتراضي
 }
 
-# --- دالة التقاط الصورة باستخدام Playwright (مع ميزة عزل الجلسات) ---
-def take_screenshot_with_proxy(target_url, session_file=None, max_retries=5):
+# --- دالة توليد الإيميل العشوائي ---
+def generate_random_email(length):
+    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+    return f"{username}@5xu.vn"
+
+# --- دالة التقاط الصورة باستخدام Playwright ---
+def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=5):
     last_error = ""
     for attempt in range(1, max_retries + 1):
-        print(f"🔄 المحاولة {attempt}: جاري الاتصال بالبروكسي (المهلة 20 ثانية)...")
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(
                     headless=True,
-                    proxy={
-                        "server": PROXY_SERVER,
-                        "username": PROXY_USERNAME,
-                        "password": PROXY_PASSWORD
-                    },
+                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD},
                     args=['--disable-blink-features=AutomationControlled']
                 )
                 
@@ -53,7 +58,6 @@ def take_screenshot_with_proxy(target_url, session_file=None, max_retries=5):
                     'user_agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 }
                 
-                # تحميل الجلسة المنعزلة إذا كانت موجودة
                 if session_file and os.path.exists(session_file):
                     context_options['storage_state'] = session_file
                 
@@ -65,23 +69,97 @@ def take_screenshot_with_proxy(target_url, session_file=None, max_retries=5):
                 
                 screenshot_bytes = page.screenshot(full_page=True)
                 
-                # حفظ حالة الصفحة قبل الإغلاق لتبقى منعزلة ومثبتة
                 if session_file:
                     context.storage_state(path=session_file)
+                
+                if image_file:
+                    with open(image_file, 'wb') as f:
+                        f.write(screenshot_bytes)
                     
                 browser.close()
                 return screenshot_bytes, "Success"
                 
         except PlaywrightTimeoutError:
             last_error = "تأخر الرد لأكثر من 20 ثانية (Timeout)."
-            print(f"⚠️ {last_error} - جاري تبديل الـ IP...")
             time.sleep(1)
         except Exception as e:
             last_error = str(e)
-            print(f"❌ خطأ في المحاولة {attempt}: {last_error}")
             time.sleep(1)
             
     return None, last_error
+
+# --- دالة أتمتة التسجيل وإدخال الإيميل ---
+def execute_netflix_automation(session_file, image_file, email):
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD},
+                args=['--disable-blink-features=AutomationControlled']
+            )
+            
+            context = browser.new_context(
+                storage_state=session_file,
+                viewport={'width': 1280, 'height': 720},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            )
+            
+            # --- 1. التعامل مع نتفلكس ---
+            netflix_page = context.new_page()
+            netflix_page.goto("https://www.netflix.com/", timeout=20000, wait_until="load")
+            netflix_page.wait_for_timeout(3000)
+            
+            # كتابة الإيميل
+            netflix_page.get_by_placeholder("Email address").fill(email)
+            
+            # الضغط على زر Try 30 Days
+            try:
+                netflix_page.locator(':is(button, a):has-text("Try 30 Days for USD 0")').first.click(timeout=5000)
+            except:
+                netflix_page.locator("button[type='submit']").first.click(timeout=5000)
+                
+            netflix_page.wait_for_timeout(4000) # انتظار تحميل الصفحة التالية
+            
+            # الضغط على زر التالي / Next
+            try:
+                next_btn = netflix_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
+                if next_btn.is_visible():
+                    next_btn.click(timeout=5000)
+                    netflix_page.wait_for_timeout(4000)
+            except Exception as e:
+                pass # في حال لم يظهر الزر، نستمر
+                
+            # حفظ الجلسة الجديدة والصورة لتبقى الصفحة المثبتة محدثة
+            context.storage_state(path=session_file)
+            netflix_page.screenshot(path=image_file, full_page=True)
+            
+            # --- 2. فتح موقع البريد لاستخراج الرسائل ---
+            email_page = context.new_page()
+            email_page.goto(f"https://generator.email/inbox9/{email}", timeout=30000, wait_until="load")
+            
+            # إعطاء الموقع 8 ثوانٍ لاستلام الرسالة
+            email_page.wait_for_timeout(8000)
+            
+            # استخراج جميع الروابط من صفحة البريد
+            links = email_page.evaluate("""() => {
+                return Array.from(document.querySelectorAll('a')).map(a => a.href);
+            }""")
+            
+            # تصفية الروابط للحصول على روابط نتفلكس فقط
+            netflix_links = list(set([l for l in links if 'netflix.com' in l and 'nflx' not in l]))
+            
+            # استخراج جزء من النص البريدي
+            try:
+                text_content = email_page.locator("body").inner_text()
+                extracted_text = text_content[:500] + "..." # نأخذ أول 500 حرف لتجنب رسائل تليجرام الطويلة
+            except:
+                extracted_text = "تعذر استخراج النص المباشر، الرجاء فحص الروابط."
+
+            browser.close()
+            return True, {"links": netflix_links, "text": extracted_text}
+            
+    except Exception as e:
+        return False, str(e)
 
 # --- لوحة المفاتيح الرئيسية ---
 def main_keyboard():
@@ -90,23 +168,32 @@ def main_keyboard():
     btn_change_netflix = InlineKeyboardButton("🔄 تغيير رمز النتفلكس", callback_data="change_netflix_pass")
     btn_toggle_logout = InlineKeyboardButton("📱 تسجيل الخروج من جميع الأجهزة: [مفعل ✅]", callback_data="toggle_logout")
     
-    # تغيير شكل القائمة بناءً على ما إذا كانت هناك صفحة مثبتة أم لا
     if USER_STATE["is_pinned"]:
         btn_screenshot_new = InlineKeyboardButton("📸 فتح صفحة جديدة (منفصلة)", callback_data="take_screenshot")
         btn_screenshot_pinned = InlineKeyboardButton("📌 عرض الصفحة المثبتة", callback_data="view_pinned_page")
-        markup.add(btn_change_netflix, btn_toggle_logout, btn_screenshot_new, btn_screenshot_pinned)
+        
+        # أزرار الأتمتة للإيميل
+        btn_auto = InlineKeyboardButton("🚀 بدء التسجيل (إدخال الإيميل)", callback_data="start_auto")
+        btn_length_info = InlineKeyboardButton(f"طول الإيميل: {USER_STATE['email_length']}", callback_data="none")
+        btn_plus = InlineKeyboardButton("➕ زيادة", callback_data="inc_email")
+        btn_minus = InlineKeyboardButton("➖ تقليل", callback_data="dec_email")
+        
+        markup.add(btn_change_netflix, btn_toggle_logout)
+        markup.add(btn_screenshot_new, btn_screenshot_pinned)
+        markup.add(btn_auto)
+        markup.row(btn_minus, btn_length_info, btn_plus) # أزرار التحكم جنباً إلى جنب
     else:
         btn_screenshot = InlineKeyboardButton("📸 الدخول إلى الرابط (Clear Cookies)", callback_data="take_screenshot")
         markup.add(btn_change_netflix, btn_toggle_logout, btn_screenshot)
         
     return markup
 
-# --- أزرار التحكم تحت الصورة (تثبيت / إلغاء التثبيت) ---
+# --- أزرار التحكم تحت الصورة ---
 def photo_keyboard(is_viewing_pinned=False):
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
     if not is_viewing_pinned:
-        markup.add(InlineKeyboardButton("📌 تثبيت هذه الصفحة (عزل)", callback_data="pin_page"))
+        markup.add(InlineKeyboardButton("📌 تثبيت وعزل هذه الصفحة", callback_data="pin_page"))
     else:
         markup.add(InlineKeyboardButton("🔓 إلغاء تثبيت الصفحة", callback_data="unpin_page"))
         
@@ -121,7 +208,7 @@ def send_welcome(message):
         return
     bot.send_message(
         message.chat.id,
-        "مرحباً بك في لوحة تحكم الإدارة ⚙️\n\nاختر الإجراء الذي تريده من القائمة أدناه:",
+        f"مرحباً بك يا نبيل في لوحة تحكم الإدارة ⚙️\n\nاختر الإجراء الذي تريده من القائمة أدناه:",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
@@ -135,94 +222,113 @@ def callback_listener(call):
         bot.answer_callback_query(call.id, "هذا البوت ليس مخصصاً لك!", show_alert=True)
         return
 
-    # --- 1. فتح صفحة جديدة ---
-    if call.data == "take_screenshot":
-        bot.answer_callback_query(call.id, "جاري فتح صفحة جديدة...")
+    # --- التحكم بطول الإيميل ---
+    if call.data == "inc_email":
+        if USER_STATE["email_length"] < 15:
+            USER_STATE["email_length"] += 1
+            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=main_keyboard())
+        return
+        
+    elif call.data == "dec_email":
+        if USER_STATE["email_length"] > 4:
+            USER_STATE["email_length"] -= 1
+            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=main_keyboard())
+        return
+
+    # --- زر بدء التسجيل والأتمتة ---
+    elif call.data == "start_auto":
+        target_email = generate_random_email(USER_STATE['email_length'])
+        
+        bot.answer_callback_query(call.id, "جاري بدء الأتمتة...")
         bot.edit_message_text(
-            "⏳ جارٍ العمل... جاري فتح صفحة جديدة تماماً...",
+            f"⏳ يتم الآن العمل على الإيميل:\n`{target_email}`\n\n- إدخال الإيميل...\n- تخطي الصفحات...\n- فحص البريد الوارد...\nالرجاء الانتظار (قد يستغرق 20-30 ثانية).",
             chat_id, 
-            call.message.message_id
+            call.message.message_id,
+            parse_mode="Markdown"
         )
+        
+        def run_automation():
+            success, result = execute_netflix_automation(USER_STATE["pinned_session"], USER_STATE["pinned_image"], target_email)
+            
+            bot.delete_message(chat_id, call.message.message_id)
+            
+            if success:
+                # إرسال الصورة المحدثة لنتفلكس
+                if os.path.exists(USER_STATE["pinned_image"]):
+                    with open(USER_STATE["pinned_image"], "rb") as img:
+                        bot.send_photo(chat_id, img, caption="📸 صورة نتفلكس بعد إدخال الإيميل وتخطي الصفحة:")
+                
+                # تجميع الروابط والنص المستخرج
+                links_text = "\n".join(result["links"]) if result["links"] else "⚠️ لم يتم العثور على روابط نتفلكس في الرسالة."
+                msg = (f"✅ **اكتملت الأتمتة بنجاح!**\n\n"
+                       f"📧 **الإيميل:** `{target_email}`\n\n"
+                       f"🔗 **الروابط المستخرجة:**\n{links_text}\n\n"
+                       f"📄 **محتوى من البريد:**\n`{result['text']}`")
+                       
+                bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=main_keyboard())
+            else:
+                bot.send_message(chat_id, f"❌ حدث خطأ أثناء الأتمتة:\n`{result}`", reply_markup=main_keyboard(), parse_mode="Markdown")
+
+        threading.Thread(target=run_automation).start()
+
+    # --- فتح صفحة جديدة ---
+    elif call.data == "take_screenshot":
+        bot.answer_callback_query(call.id, "جاري فتح صفحة جديدة...")
+        bot.edit_message_text("⏳ جارٍ العمل... جاري فتح صفحة جديدة والاتصال بالبروكسي...", chat_id, call.message.message_id)
         
         def process_screenshot():
             url = "https://www.netflix.com/clearcookies"
-            
-            # مسح الجلسة المؤقتة السابقة لضمان أن هذه الصفحة جديدة ومنعزلة
-            if os.path.exists(USER_STATE["temp_file"]):
-                os.remove(USER_STATE["temp_file"])
+            for file_name in [USER_STATE["temp_session"], USER_STATE["temp_image"]]:
+                if os.path.exists(file_name):
+                    os.remove(file_name)
                 
-            photo_bytes, error_msg = take_screenshot_with_proxy(url, session_file=USER_STATE["temp_file"])
+            photo_bytes, error_msg = take_screenshot_with_proxy(url, session_file=USER_STATE["temp_session"], image_file=USER_STATE["temp_image"])
             
             if photo_bytes:
                 bot.delete_message(chat_id, call.message.message_id)
-                bot.send_photo(
-                    chat_id, 
-                    photo_bytes, 
-                    caption="✅ تم الدخول إلى الرابط في صفحة جديدة.\n\nهل تريد تثبيتها وعزلها؟",
-                    reply_markup=photo_keyboard(is_viewing_pinned=False)
-                )
+                bot.send_photo(chat_id, photo_bytes, caption="✅ تم الدخول إلى الرابط.\n\nهل تريد تثبيتها (تجميدها) للرجوع إليها لاحقاً؟", reply_markup=photo_keyboard(is_viewing_pinned=False))
             else:
                 bot.edit_message_text(f"❌ فشل الاتصال:\n`{error_msg}`", chat_id, call.message.message_id, reply_markup=main_keyboard(), parse_mode="Markdown")
                 
         threading.Thread(target=process_screenshot).start()
 
-    # --- 2. عرض الصفحة المثبتة ---
+    # --- عرض الصفحة المثبتة ---
     elif call.data == "view_pinned_page":
-        bot.answer_callback_query(call.id, "جاري الدخول للصفحة المثبتة...")
-        bot.edit_message_text("⏳ جارٍ العمل... جاري استرجاع الصفحة المثبتة...", chat_id, call.message.message_id)
-        
-        def process_pinned():
-            url = "https://www.netflix.com/clearcookies"
-            # استخدام ملف الجلسة المثبتة
-            photo_bytes, error_msg = take_screenshot_with_proxy(url, session_file=USER_STATE["pinned_file"])
-            
-            if photo_bytes:
-                bot.delete_message(chat_id, call.message.message_id)
-                bot.send_photo(
-                    chat_id, 
-                    photo_bytes, 
-                    caption="📌 هذه هي صفحتك المثبتة والمنعزلة عن باقي الصفحات.",
-                    reply_markup=photo_keyboard(is_viewing_pinned=True)
-                )
-            else:
-                bot.edit_message_text(f"❌ فشل الاتصال بالصفحة المثبتة:\n`{error_msg}`", chat_id, call.message.message_id, reply_markup=main_keyboard(), parse_mode="Markdown")
+        bot.answer_callback_query(call.id, "جاري العرض...")
+        if os.path.exists(USER_STATE["pinned_image"]):
+            with open(USER_STATE["pinned_image"], 'rb') as img_file:
+                photo_bytes = img_file.read()
                 
-        threading.Thread(target=process_pinned).start()
+            bot.delete_message(chat_id, call.message.message_id)
+            bot.send_photo(chat_id, photo_bytes, caption="📌 عرض الصفحة المثبتة (نسخة مجمدة ثابتة).", reply_markup=photo_keyboard(is_viewing_pinned=True))
+        else:
+            bot.edit_message_text("❌ لم يتم العثور على صورة مثبتة.", chat_id, call.message.message_id, reply_markup=main_keyboard())
 
-    # --- 3. زر التثبيت ---
+    # --- تثبيت الصفحة ---
     elif call.data == "pin_page":
         USER_STATE["is_pinned"] = True
-        # نقل الكوكيز من الجلسة المؤقتة إلى الجلسة المثبتة
-        if os.path.exists(USER_STATE["temp_file"]):
-            shutil.copy(USER_STATE["temp_file"], USER_STATE["pinned_file"])
+        if os.path.exists(USER_STATE["temp_session"]):
+            shutil.copy(USER_STATE["temp_session"], USER_STATE["pinned_session"])
+        if os.path.exists(USER_STATE["temp_image"]):
+            shutil.copy(USER_STATE["temp_image"], USER_STATE["pinned_image"])
             
-        bot.answer_callback_query(call.id, "✅ تم التثبيت! الصفحة الآن منعزلة ومحفوظة.")
-        # تغيير الأزرار تحت الصورة لتظهر (إلغاء التثبيت)
+        bot.answer_callback_query(call.id, "✅ تم تجميد وتثبيت الصفحة بنجاح!")
         bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=photo_keyboard(is_viewing_pinned=True))
 
-    # --- 4. زر إلغاء التثبيت ---
+    # --- إلغاء التثبيت ---
     elif call.data == "unpin_page":
         USER_STATE["is_pinned"] = False
-        # حذف ملف الصفحة المثبتة
-        if os.path.exists(USER_STATE["pinned_file"]):
-            os.remove(USER_STATE["pinned_file"])
+        for file_name in [USER_STATE["pinned_session"], USER_STATE["pinned_image"]]:
+            if os.path.exists(file_name):
+                os.remove(file_name)
             
         bot.answer_callback_query(call.id, "🔓 تم إلغاء التثبيت وحذف الصفحة المنعزلة.")
-        # تغيير الأزرار تحت الصورة لتظهر (تثبيت)
         bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=photo_keyboard(is_viewing_pinned=False))
 
-    # --- 5. زر الرجوع للقائمة الرئيسية ---
+    # --- زر الرجوع ---
     elif call.data == "back_to_main":
         bot.delete_message(chat_id, call.message.message_id)
         bot.send_message(chat_id, "مرحباً بك في القائمة الرئيسية:", reply_markup=main_keyboard())
-
-    # --- الأزرار الأخرى ---
-    elif call.data == "change_netflix_pass":
-        bot.answer_callback_query(call.id, "جاري تحضير الأتمتة...")
-        bot.edit_message_text("⏳ جارٍ العمل...", chat_id, call.message.message_id)
-
-    elif call.data == "toggle_logout":
-        bot.answer_callback_query(call.id, "تم تغيير حالة تسجيل الخروج", show_alert=False)
 
 print("البوت يعمل الآن...")
 bot.infinity_polling()
