@@ -83,9 +83,9 @@ def apply_stealth(page):
     else:
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-def safely_goto(page, url, timeout=45000):
+def safely_goto(page, url, timeout=60000):
     try:
-        page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+        page.goto(url, timeout=timeout, wait_until="load")
     except Exception:
         pass 
     page.wait_for_timeout(4000)
@@ -96,7 +96,7 @@ def send_progress_photo(page, chat_id, caption):
         screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
     except Exception as e:
-        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ تعذر التقاط الصورة لكن العملية مستمرة...)*", parse_mode="Markdown")
+        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ لم نتمكن من التقاط الصورة، مستمرون...)*", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: USER_STATE["waiting_for"] in ["phone", "otp"])
 def handle_interactive_input(message):
@@ -106,14 +106,11 @@ def handle_interactive_input(message):
     USER_STATE["input_event"].set()
     bot.send_message(message.chat.id, "✅ تم استلام الإدخال، جاري تطبيقه في المتصفح الآن...")
 
-# --- دالة فتح الصفحة المنفصلة (الآن تخبرك بأي محاولة وتقوم بحقن الكوكيز) ---
 def take_screenshot_with_proxy(target_url, chat_id=None, msg_id=None, session_file=None, image_file=None, max_retries=3):
     for attempt in range(1, max_retries + 1):
         if chat_id and msg_id:
-            try:
-                bot.edit_message_text(f"⏳ جاري الفتح... (المحاولة {attempt} من {max_retries})\nيرجى الانتظار...", chat_id, msg_id)
+            try: bot.edit_message_text(f"⏳ جاري الفتح... (المحاولة {attempt} من {max_retries})\nيرجى الانتظار...", chat_id, msg_id)
             except: pass
-            
         try:
             with sync_playwright() as p:
                 browser = p.firefox.launch(
@@ -125,8 +122,6 @@ def take_screenshot_with_proxy(target_url, chat_id=None, msg_id=None, session_fi
                     context_options['storage_state'] = session_file
                 
                 context = browser.new_context(**context_options)
-                
-                # 🔥 حقن الكوكيز السحرية لمنع A/B Testing حتى في الصفحة المثبتة 🔥
                 context.add_cookies(sanitize_cookies(RAW_COOKIES))
                 
                 page = context.new_page()
@@ -140,12 +135,10 @@ def take_screenshot_with_proxy(target_url, chat_id=None, msg_id=None, session_fi
                     with open(image_file, 'wb') as f: f.write(screenshot_bytes)
                 browser.close()
                 return screenshot_bytes, "Success"
-        except Exception as e:
+        except Exception:
             time.sleep(2)
-            
-    return None, "فشل الاتصال بالبروكسي. يرجى المحاولة لاحقاً."
+    return None, "فشل الاتصال بالبروكسي."
 
-# --- دالة الأتمتة الشاملة ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
         with sync_playwright() as p:
@@ -203,7 +196,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 error_msg = netflix_page.locator('text="Something went wrong"').first
                 if error_msg.is_visible(timeout=3000):
                     send_progress_photo(netflix_page, chat_id, "📸 [تحذير] ظهر الخطأ الأحمر، جاري التحديث...")
-                    netflix_page.reload(timeout=60000, wait_until="domcontentloaded")
+                    netflix_page.reload(timeout=60000, wait_until="load")
                     netflix_page.wait_for_timeout(5000)
             except:
                 pass
@@ -263,7 +256,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 chrome_browser.close()
                 return True, {"links": netflix_links, "text": "لم يتم العثور على رابط epr."}
 
-            bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط بانتظار للتحميل...")
+            bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط بانتظار بطيء لمنع الشاشة البيضاء...")
             
             # -------------------------------------------------------------
             # 🔥 المرحلة الثانية: فتح رابط epr وإكمال التسجيل 🔥
@@ -274,12 +267,11 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             safely_goto(signup_page, epr_link, timeout=60000)
             signup_page.wait_for_timeout(6000) 
 
-            # الانتظار الذكي لزر Finish لمنع الشاشة البيضاء
+            # الانتظار الذكي لزر Finish
             finish_btn = signup_page.locator(':is(button, a):has-text("Finish"), :is(button, a):has-text("إكمال")').first
             try:
                 finish_btn.wait_for(state="visible", timeout=20000)
                 send_progress_photo(signup_page, chat_id, "📸 [5] تم تحميل رابط إكمال التسجيل بنجاح (ظهر الزر).")
-                
                 finish_btn.click(force=True, timeout=10000)
                 signup_page.wait_for_timeout(6000)
                 send_progress_photo(signup_page, chat_id, "📸 [6] تم الضغط على زر (Finish Sign-Up) بنجاح.")
@@ -288,35 +280,58 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 signup_page.keyboard.press("Enter")
                 signup_page.wait_for_timeout(5000)
 
-            for i in range(1, 4):
+            # 🔥 التحديث الجذري: حلقة التخطي الذكية (Smart Skip) 🔥
+            bot.send_message(chat_id, "⏳ جاري المرور عبر صفحات (اختيار الخطة) للوصول لصفحة إعداد الدفع...")
+            for i in range(1, 6):
+                signup_page.wait_for_timeout(2000) 
+                
+                # 1. فحص هل وصلنا للدفع (ظهور خيار الفاتورة أو خانة الرقم)؟
                 try:
-                    next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
-                    if next_btn_extra.is_visible(timeout=4000):
-                        next_btn_extra.click(force=True)
-                        signup_page.wait_for_timeout(5000)
-                        send_progress_photo(signup_page, chat_id, f"📸 [تخطي] تم الضغط على التالي ({i}).")
-                    else:
-                        break
+                    if signup_page.locator('text="Add to mobile bill"').count() > 0 or signup_page.locator('text="فاتورة الهاتف"').count() > 0 or signup_page.locator('input[type="tel"]').count() > 0:
+                        bot.send_message(chat_id, "✅ تم الوصول لصفحة الدفع بنجاح.")
+                        break # نوقف التخطي لأننا وصلنا للهدف!
                 except:
-                    break
+                    pass
 
-            send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية قبل اختيار فاتورة الهاتف.")
+                # 2. محاولة الضغط على زر (Next / التالي / Continue) الموجود في صفحات الخطة
+                try:
+                    next_btn_locator = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
+                    if next_btn_locator.count() > 0:
+                        next_btn_locator.click(force=True, timeout=5000)
+                        signup_page.wait_for_timeout(6000)
+                        send_progress_photo(signup_page, chat_id, f"📸 [تخطي] تم الضغط على زر المتابعة (صفحة الخطة {i}).")
+                        continue
+                except:
+                    pass
+                
+                # إذا لم يجد الزر تماماً، نضغط انتر للمرور
+                signup_page.keyboard.press("Enter")
+                signup_page.wait_for_timeout(4000)
+
+            send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية قبل/عند اختيار فاتورة الهاتف.")
 
             bot.send_message(chat_id, "⏳ جاري اختيار (إضافة إلى فاتورة الهاتف المحمول)...")
             try:
                 mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
-                mobile_bill_option.click(timeout=10000)
-                signup_page.wait_for_timeout(4000)
-                send_progress_photo(signup_page, chat_id, "📸 [8] تم تحديد خيار (فاتورة الهاتف).")
-                
-                next_btn2 = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
-                if next_btn2.is_visible(timeout=3000):
-                    next_btn2.click()
+                if mobile_bill_option.count() > 0:
+                    mobile_bill_option.click(force=True, timeout=10000)
                     signup_page.wait_for_timeout(4000)
-                    send_progress_photo(signup_page, chat_id, "📸 [9] تم الضغط على التالي بعد اختيار الوسيلة.")
+                    send_progress_photo(signup_page, chat_id, "📸 [8] تم تحديد خيار (فاتورة الهاتف).")
+            except Exception:
+                pass
+            
+            try:
+                next_btn2 = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
+                if next_btn2.count() > 0:
+                    next_btn2.click(force=True, timeout=5000)
+                    signup_page.wait_for_timeout(5000)
+                    send_progress_photo(signup_page, chat_id, "📸 [9] تم الضغط على التالي للذهاب لصفحة إدخال الرقم.")
+                else:
+                    signup_page.keyboard.press("Enter")
+                    signup_page.wait_for_timeout(4000)
             except Exception:
                 signup_page.keyboard.press("Enter")
-                signup_page.wait_for_timeout(3000)
+                signup_page.wait_for_timeout(4000)
 
             while True:
                 send_progress_photo(signup_page, chat_id, "📸 [10] صفحة إدخال رقم الهاتف جاهزة.")
@@ -392,7 +407,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                         
                     signup_page.wait_for_timeout(3000)
                     try:
-                        signup_page.reload(timeout=40000, wait_until="domcontentloaded")
+                        signup_page.reload(timeout=40000, wait_until="load")
                     except:
                         pass
                     signup_page.wait_for_timeout(4000)
