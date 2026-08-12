@@ -43,36 +43,6 @@ USER_STATE = {
     "change_phone": False
 }
 
-# 🔹 الكوكيز الثابتة لتجميد عرض 30 يوم 🔹
-RAW_COOKIES = [
-  {"name": "flwssn", "value": "b2cdd378-f151-4ae8-bc62-a3f304f10265", "domain": ".netflix.com", "path": "/", "expires": 1786557170.196962, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
-  {"name": "gsid", "value": "31793dad-378b-4b3f-a31d-6830273a78f5", "domain": ".netflix.com", "path": "/", "expires": 1786632766.470792, "httpOnly": True, "secure": True, "sameSite": "no_restriction"},
-  {"name": "netflix-sans-bold-3-loaded", "value": "true", "domain": ".netflix.com", "path": "/", "expires": 1794322370.19694, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
-  {"name": "netflix-sans-normal-3-loaded", "value": "true", "domain": ".netflix.com", "path": "/", "expires": 1794322370.196915, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
-  {"name": "NetflixId", "value": "v%3D3%26ct%3DBgjHlOvcAxKrAsPHtSnrZ9GKORSMuemrTl8covHfrSmMHg1VM44L77Jrwx2uMz07p6sVGf_wgQ347NiE9t-E6u6b1UIjzpLBZj3RK-K12h2a9fOSlqkzKuknBnpr9jq_r_CA258gC-GIMbcVrrpesjVwF_PFBsXdBEvXRpBITMlUtc9t8ZYnmXJhc-UYji_EIctXdNnTV58Q5z2C4uu0_UeYZdSjHfJ7kaWwoiTq4gXly5kgGIL3lYyLGIuI64ektCOwtw56c3xeAxi347qIWa9yUJu98ag5MFObpYDnt7dtyb_t1sWrLejZLVFlmRH3O1tvrGNQ1Gg1YWtu8M2UyONPETTUIk03-XuwOeq38x38W5yhRkQERjLBXMxxfEE2riISV__maFrywZ0aM2XKOy121xIUGAYiDgoMWP4bq858s_MFPNW8", "domain": ".netflix.com", "path": "/", "expires": 1818082366.470752, "httpOnly": False, "secure": True, "sameSite": "lax"},
-  {"name": "nfvdid", "value": "BQFmAAEBEFG3E8P1gRYF0CWTHucUHvRAr4WoXZoXMCJsHpmZWCwV23Wvz4jL7B_S3wcmhclGbFwicS-7sV38gw0R4uqceBim1JQ-_tiQJZ0wUNES6bl9Yw%3D%3D", "domain": ".netflix.com", "path": "/", "expires": 1817250051.048752, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
-  {"name": "nkufi-bold-4-loaded", "value": "true", "domain": ".netflix.com", "path": "/", "expires": 1794322370.19689, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
-  {"name": "nkufi-normal-4-loaded", "value": "true", "domain": ".netflix.com", "path": "/", "expires": 1794322370.196801, "httpOnly": False, "secure": False, "sameSite": "unspecified"},
-  {"name": "OptanonConsent", "value": "isGpcEnabled=0&datestamp=Wed+Aug+12+2026+17%3A52%3A50+GMT%2B0300+(%D8%A7%D9%84%D8%AA%D9%88%D9%82%D9%8A%D8%AA+%D8%A7%D9%84%D8%B9%D8%B1%D8%A8%D9%8A+%D8%A7%D9%84%D8%B1%D8%B3%D9%85%D9%8A)&version=202604.2.0&browserGpcFlag=0&isDntEnabled=0&isIABGlobal=false&hosts=&consentId=64d3de31-d011-461b-9a7e-f01a992fcfb5&interactionCount=1&isAnonUser=1&prevHadToken=0&landingPath=NotLandingPage&groups=C0001%3A1%2CC0002%3A1%2CC0003%3A1%2CC0004%3A1&crTime=1785714057627&AwaitingReconsent=false", "domain": ".netflix.com", "path": "/", "expires": 1818082370, "httpOnly": False, "secure": False, "sameSite": "lax"},
-  {"name": "OTSessionTracking", "value": "87b6a5c0-0104-4e96-a291-092c11350111", "domain": "www.netflix.com", "path": "/", "expires": 1786632769, "httpOnly": False, "secure": False, "sameSite": "lax"},
-  {"name": "SecureNetflixId", "value": "v%3D3%26mac%3DAQEAEQABABQrKG3XWM4a01dvho67JcWEdpgOEh3Iqnw.%26dt%3D1786546366150", "domain": ".netflix.com", "path": "/", "expires": 1818082366.470711, "httpOnly": False, "secure": True, "sameSite": "strict"}
-]
-
-# دالة لتنظيف الكوكيز لجعلها متوافقة 100% مع Playwright
-def sanitize_cookies(cookies):
-    clean = []
-    for c in cookies:
-        nc = {"name": c["name"], "value": c["value"], "domain": c["domain"], "path": c["path"]}
-        if "expires" in c: nc["expires"] = float(c["expires"])
-        if "httpOnly" in c: nc["httpOnly"] = c["httpOnly"]
-        if "secure" in c: nc["secure"] = c["secure"]
-        if "sameSite" in c:
-            ss = c["sameSite"].lower()
-            if ss in ["lax", "strict", "none"]: nc["sameSite"] = ss.capitalize()
-            elif ss == "no_restriction": nc["sameSite"] = "None"
-        clean.append(nc)
-    return clean
-
 def generate_random_email(length):
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     return f"{username}@5xu.vn"
@@ -119,9 +89,6 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
                     context_options['storage_state'] = session_file
                 
                 context = browser.new_context(**context_options)
-                # 🔥 حقن الكوكيز السحرية 🔥
-                context.add_cookies(sanitize_cookies(RAW_COOKIES))
-                
                 page = context.new_page()
                 apply_stealth(page) 
                 safely_goto(page, target_url)
@@ -149,16 +116,11 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 context_options['storage_state'] = session_file
                 
             context = browser.new_context(**context_options)
-            
-            # 🔥 حقن الكوكيز السحرية في الجلسة قبل فتح الموقع لتثبيت عرض 30 يوم 🔥
-            bot.send_message(chat_id, "⏳ جاري حقن الكوكيز المخصصة لتثبيت العرض المجاني...")
-            context.add_cookies(sanitize_cookies(RAW_COOKIES))
-            
             netflix_page = context.new_page()
             apply_stealth(netflix_page)
             
             # --- الخطوة 1: الفتح ---
-            bot.send_message(chat_id, "⏳ جاري فتح صفحة نتفلكس بالكوكيز الجديدة...")
+            bot.send_message(chat_id, "⏳ جاري تنفيذ المسار الناجح (فايرفوكس المخفي)...")
             safely_goto(netflix_page, "https://www.netflix.com/login")
             send_progress_photo(netflix_page, chat_id, "📸 [1] تم فتح صفحة نتفلكس الرئيسية.")
             
@@ -257,7 +219,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط في المتصفح...")
             
             # -------------------------------------------------------------
-            # 🔥 المرحلة الثانية: إكمال التسجيل وإضافة فاتورة الهاتف 🔥
+            # 🔥 المرحلة الثانية: الضغط على Finish Sign-Up وإضافة فاتورة الهاتف 🔥
             # -------------------------------------------------------------
             signup_page = context.new_page()
             apply_stealth(signup_page)
@@ -265,20 +227,32 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             
             send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
 
-            for i in range(1, 4):
+            # الضغط حصرياً على زر Finish Sign-Up الظاهر في الصورة
+            try:
+                finish_sign_btn = signup_page.locator('text="Finish Sign-Up"').first
+                if finish_sign_btn.is_visible(timeout=10000):
+                    finish_sign_btn.click(timeout=10000)
+                    signup_page.wait_for_timeout(6000)
+                    send_progress_photo(signup_page, chat_id, "📸 [6] تم الضغط على زر (Finish Sign-Up) بنجاح.")
+                else:
+                    signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue")').first.click(timeout=5000)
+                    signup_page.wait_for_timeout(5000)
+            except Exception as e:
+                bot.send_message(chat_id, f"⚠️ محاولة ضغط زر Finish Sign-Up: {e}")
+
+            # تخطي أي صفحة ترحيبية أخرى إن وجدت
+            for i in range(1, 3):
                 try:
-                    finish_btn = signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("إكمال التسجيل"), :is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
-                    if finish_btn.is_visible(timeout=4000):
-                        finish_btn.click(timeout=10000)
-                        signup_page.wait_for_timeout(5000)
-                        send_progress_photo(signup_page, chat_id, f"📸 [6] تم الضغط على زر المتابعة (تخطي {i}).")
-                    else:
-                        break
+                    next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
+                    if next_btn_extra.is_visible(timeout=3000):
+                        next_btn_extra.click()
+                        signup_page.wait_for_timeout(4000)
                 except:
                     break
 
             send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية قبل اختيار فاتورة الهاتف.")
 
+            # اختيار فاتورة الهاتف (Add to mobile bill)
             bot.send_message(chat_id, "⏳ جاري اختيار (إضافة إلى فاتورة الهاتف المحمول)...")
             try:
                 mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
