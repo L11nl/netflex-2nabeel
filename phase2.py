@@ -4,7 +4,6 @@ import threading
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def complete_signup_phase(ctx):
-    # استخراج المتغيرات من الحزمة
     context = ctx["context"]
     browser = ctx["browser"]
     chrome_browser = ctx["chrome_browser"]
@@ -26,31 +25,43 @@ def complete_signup_phase(ctx):
     
     send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
 
+    # التعامل مع صفحة Review to continue والتحميل
     try:
-        finish_btn = signup_page.locator('text="Finish Sign-Up"').first
-        finish_btn.wait_for(state="visible", timeout=20000)
-        finish_btn.click(timeout=10000)
-        signup_page.wait_for_timeout(6000)
-        send_progress_photo(signup_page, chat_id, "📸 [6] تم الضغط على زر (Finish Sign-Up) بنجاح.")
+        # البحث عن الزر الأحمر (Finish Sign-Up أو Continue)
+        start_btn = signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue"), :is(button, a):has-text("متابعة")').first
+        start_btn.wait_for(state="visible", timeout=20000)
+        start_btn.click(timeout=10000)
+        
+        bot.send_message(chat_id, "⏳ تم الضغط على الزر.. جاري المراقبة وتصوير الشاشة كل 3 ثوانٍ...")
+        
+        # === تصوير الشاشة كل 3 ثواني ومراقبة التحميل (بحد أقصى 6 مرات = 18 ثانية) ===
+        for i in range(1, 7):
+            signup_page.wait_for_timeout(3000)
+            send_progress_photo(signup_page, chat_id, f"📸 جاري التحميل... (اللقطة {i})")
+            
+            # الفحص: هل ظهر خيار الدفع أو زر "التالي" الخاص بالصفحة الجديدة؟
+            next_step_element = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), :is(button, a):has-text("Next"), :is(button, a):has-text("التالي")').first
+            if next_step_element.is_visible(timeout=1000):
+                bot.send_message(chat_id, "✅ اكتمل التحميل وظهرت الصفحة التالية!")
+                break
+                
     except Exception as e:
-        try:
-            signup_page.locator(':is(button, a):has-text("Finish Sign-Up"), :is(button, a):has-text("Continue")').first.click(timeout=10000)
-            signup_page.wait_for_timeout(6000)
-            send_progress_photo(signup_page, chat_id, "📸 [6-بديل] تم الضغط على زر المتابعة.")
-        except Exception as ex:
-            bot.send_message(chat_id, f"⚠️ تعذر الضغط التلقائي على زر Finish Sign-Up: {ex}")
+        bot.send_message(chat_id, f"⚠️ حدث تأخير أو خطأ في صفحة التحميل: {e}")
 
+    # تخطي أي صفحة إضافية تظهر بعدها (Step 1 of 3 أو ما شابه)
     for i in range(1, 3):
         try:
             next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
             if next_btn_extra.is_visible(timeout=3000):
                 next_btn_extra.click()
                 signup_page.wait_for_timeout(4000)
+                send_progress_photo(signup_page, chat_id, f"📸 تخطي صفحة فرعية إضافية ({i}).")
         except:
             break
 
     send_progress_photo(signup_page, chat_id, "📸 [7] الشاشة الحالية قبل اختيار فاتورة الهاتف.")
 
+    # اختيار فاتورة الهاتف (Add to mobile bill)
     bot.send_message(chat_id, "⏳ جاري اختيار (إضافة إلى فاتورة الهاتف المحمول)...")
     try:
         mobile_bill_option = signup_page.locator('*:has-text("Add to mobile bill"), *:has-text("فاتورة الهاتف"), *:has-text("فاتورة الجوال")').last
