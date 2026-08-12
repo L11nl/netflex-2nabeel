@@ -9,7 +9,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-# محاولة استدعاء مكتبة التخفي
+# مكتبة التخفي
 try:
     from playwright_stealth import stealth_sync
 except ImportError:
@@ -51,14 +51,13 @@ def apply_stealth(page):
     else:
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-# --- دالة التقاط الصور (تم إعادتها وتحسينها) ---
 def send_progress_photo(page, chat_id, caption):
     try:
-        page.wait_for_timeout(500) # استقرار الصفحة لضمان تصويرها بوضوح
+        page.wait_for_timeout(500) 
         screenshot_bytes = page.screenshot(full_page=False, timeout=15000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
-    except Exception as e:
-        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ لم يتمكن البوت من التقاط الصورة بسبب بطء البروكسي، لكنه مستمر في العمل...)*", parse_mode="Markdown")
+    except Exception:
+        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ لم يتمكن البوت من التقاط الصورة، لكنه مستمر...)*", parse_mode="Markdown")
 
 def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, max_retries=5):
     for attempt in range(1, max_retries + 1):
@@ -70,10 +69,8 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
                     args=['--disable-blink-features=AutomationControlled', '--disable-infobars']
                 )
                 
-                context_options = {
-                    'viewport': {'width': 1280, 'height': 720},
-                    'user_agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
+                # تم إزالة User-Agent المزيف ليتطابق مع نظام Railway (Linux) ويمنع كشف التناقض
+                context_options = {'viewport': {'width': 1280, 'height': 720}}
                 
                 if session_file and os.path.exists(session_file):
                     context_options['storage_state'] = session_file
@@ -108,37 +105,48 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 args=['--disable-blink-features=AutomationControlled', '--disable-infobars']
             )
             
-            context = browser.new_context(
-                storage_state=session_file if os.path.exists(session_file) else None,
-                viewport={'width': 1280, 'height': 720},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            )
-            
+            # إزالة User-Agent الوهمي الذي كان يكشف البوت
+            context_options = {'viewport': {'width': 1280, 'height': 720}}
+            if session_file and os.path.exists(session_file):
+                context_options['storage_state'] = session_file
+                
+            context = browser.new_context(**context_options)
             netflix_page = context.new_page()
             apply_stealth(netflix_page)
             
             # --- الخطوة 1: فتح الصفحة ---
-            bot.send_message(chat_id, "⏳ جاري تنفيذ العملية (المرور المخفي)...")
+            bot.send_message(chat_id, "⏳ جاري تنفيذ العملية (تخطي متقدم لجوجل)...")
             netflix_page.goto("https://www.netflix.com/login", timeout=60000, wait_until="domcontentloaded")
             netflix_page.wait_for_timeout(4000)
             send_progress_photo(netflix_page, chat_id, "📸 الخطوة 1: الوصول لصفحة تسجيل الدخول.")
             
-            # --- الخطوة 2: تجاوز reCAPTCHA ---
+            # --- الخطوة 2: محاكاة بشرية قوية لتجاوز reCAPTCHA ---
             for attempt in range(1, 4):
                 try:
                     email_input = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                     if email_input.is_visible(timeout=5000):
+                        # حركة ماوس عشوائية قبل النقر
+                        netflix_page.mouse.move(random.randint(100, 500), random.randint(100, 500))
+                        netflix_page.wait_for_timeout(random.randint(500, 1500))
+                        
                         email_input.click()
                         email_input.fill("")
-                        email_input.type(email, delay=150)
+                        
+                        # كتابة حرفاً حرفاً بسرعات عشوائية (محاكاة إنسان حقيقي)
+                        for char in email:
+                            email_input.press_sequentially(char, delay=random.randint(50, 300))
+                        
                         netflix_page.wait_for_timeout(1000)
-                        send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: تم إدخال الإيميل ببطء لمحاكاة السلوك البشري.")
+                        send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: تم إدخال الإيميل بأسلوب بشري.")
                 except:
                     pass
                 
                 try:
                     continue_btn = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Next"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي")').first
                     if continue_btn.is_visible(timeout=3000):
+                        # حركة ماوس باتجاه الزر
+                        continue_btn.hover()
+                        netflix_page.wait_for_timeout(random.randint(500, 1500))
                         continue_btn.click(timeout=10000)
                     else:
                         email_input.press("Enter")
@@ -146,23 +154,23 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     try: email_input.press("Enter")
                     except: pass
                     
-                netflix_page.wait_for_timeout(6000)
+                netflix_page.wait_for_timeout(7000)
                 send_progress_photo(netflix_page, chat_id, "📸 الخطوة 2: الصفحة بعد الضغط على الاستمرار.")
                 
                 try:
                     error_msg = netflix_page.locator('text="Something went wrong"').first
                     if error_msg.is_visible(timeout=3000):
-                        send_progress_photo(netflix_page, chat_id, f"📸 ظهر الخطأ الأحمر (رقم {attempt}). جاري مسح الكوكيز وإعادة المحاولة!")
-                        context.clear_cookies() 
+                        send_progress_photo(netflix_page, chat_id, f"📸 نتفلكس حظرت الآيبي مؤقتاً (محاولة {attempt}). جاري تحديث الصفحة!")
+                        # تم إلغاء مسح الكوكيز لأن مسحها يثير ريبة جوجل أكثر، نكتفي بالتحديث
                         netflix_page.reload(timeout=60000, wait_until="domcontentloaded")
-                        netflix_page.wait_for_timeout(4000)
+                        netflix_page.wait_for_timeout(5000)
                         continue 
                 except:
                     pass
                     
                 break 
                 
-            # --- الخطوة 3: إرسال الرابط سريعاً ---
+            # --- الخطوة 3: إرسال الرابط ---
             for i in range(1, 4):
                 try:
                     resend_btn = netflix_page.locator(':is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
@@ -174,13 +182,17 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                     try:
                         email_input_again = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
                         if email_input_again.is_visible(timeout=2000) and not email_input_again.input_value():
-                            email_input_again.type(email, delay=150)
+                            email_input_again.click()
+                            for char in email:
+                                email_input_again.press_sequentially(char, delay=random.randint(50, 300))
                             netflix_page.wait_for_timeout(1000)
                     except: pass
                     
                     next_btn = netflix_page.locator(':is(button, a):has-text("Send Link"), :is(button, a):has-text("إرسال الرابط"), :is(button, a):has-text("Next"), :is(button, a):has-text("Continue"), :is(button, a):has-text("التالي"), :is(button, a):has-text("متابعة")').first
                     
                     if next_btn.is_visible(timeout=4000):
+                        next_btn.hover()
+                        netflix_page.wait_for_timeout(1000)
                         next_btn.click(timeout=10000)
                         netflix_page.wait_for_timeout(6000)
                         send_progress_photo(netflix_page, chat_id, f"📸 تم الضغط وتخطي الصفحة (رقم {i}).")
@@ -216,6 +228,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
     except Exception as e:
         return False, str(e)
 
+# --- القوائم السفلية والباقي بدون تغيير ---
 def main_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
