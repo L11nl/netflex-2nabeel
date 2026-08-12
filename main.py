@@ -73,27 +73,30 @@ def sanitize_cookies(cookies):
         clean.append(nc)
     return clean
 
+def generate_random_email(length):
+    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+    return f"{username}@5xu.vn"
+
 def apply_stealth(page):
     if stealth_sync:
         stealth_sync(page)
     else:
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-def safely_goto(page, url, timeout=60000):
+def safely_goto(page, url, timeout=45000):
     try:
-        # استخدام load بدلاً من domcontentloaded لمنع الشاشة البيضاء تماماً
-        page.goto(url, timeout=timeout, wait_until="load")
+        page.goto(url, timeout=timeout, wait_until="domcontentloaded")
     except Exception:
         pass 
     page.wait_for_timeout(4000)
 
 def send_progress_photo(page, chat_id, caption):
     try:
-        page.wait_for_timeout(2000) # وقت استقرار ممتاز للصورة
+        page.wait_for_timeout(2000) 
         screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
         bot.send_photo(chat_id, screenshot_bytes, caption=caption)
     except Exception as e:
-        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ لم نتمكن من التقاط الصورة، مستمرون...)*", parse_mode="Markdown")
+        bot.send_message(chat_id, f"{caption}\n\n*(⚠️ تعذر التقاط الصورة لكن العملية مستمرة...)*", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: USER_STATE["waiting_for"] in ["phone", "otp"])
 def handle_interactive_input(message):
@@ -103,6 +106,46 @@ def handle_interactive_input(message):
     USER_STATE["input_event"].set()
     bot.send_message(message.chat.id, "✅ تم استلام الإدخال، جاري تطبيقه في المتصفح الآن...")
 
+# --- دالة فتح الصفحة المنفصلة (الآن تخبرك بأي محاولة وتقوم بحقن الكوكيز) ---
+def take_screenshot_with_proxy(target_url, chat_id=None, msg_id=None, session_file=None, image_file=None, max_retries=3):
+    for attempt in range(1, max_retries + 1):
+        if chat_id and msg_id:
+            try:
+                bot.edit_message_text(f"⏳ جاري الفتح... (المحاولة {attempt} من {max_retries})\nيرجى الانتظار...", chat_id, msg_id)
+            except: pass
+            
+        try:
+            with sync_playwright() as p:
+                browser = p.firefox.launch(
+                    headless=True,
+                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
+                )
+                context_options = {'viewport': {'width': 1280, 'height': 720}, 'ignore_https_errors': True}
+                if session_file and os.path.exists(session_file):
+                    context_options['storage_state'] = session_file
+                
+                context = browser.new_context(**context_options)
+                
+                # 🔥 حقن الكوكيز السحرية لمنع A/B Testing حتى في الصفحة المثبتة 🔥
+                context.add_cookies(sanitize_cookies(RAW_COOKIES))
+                
+                page = context.new_page()
+                apply_stealth(page) 
+                
+                safely_goto(page, target_url, timeout=45000)
+                screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
+                
+                if session_file: context.storage_state(path=session_file)
+                if image_file:
+                    with open(image_file, 'wb') as f: f.write(screenshot_bytes)
+                browser.close()
+                return screenshot_bytes, "Success"
+        except Exception as e:
+            time.sleep(2)
+            
+    return None, "فشل الاتصال بالبروكسي. يرجى المحاولة لاحقاً."
+
+# --- دالة الأتمتة الشاملة ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
     try:
         with sync_playwright() as p:
@@ -160,7 +203,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 error_msg = netflix_page.locator('text="Something went wrong"').first
                 if error_msg.is_visible(timeout=3000):
                     send_progress_photo(netflix_page, chat_id, "📸 [تحذير] ظهر الخطأ الأحمر، جاري التحديث...")
-                    netflix_page.reload(timeout=60000, wait_until="load")
+                    netflix_page.reload(timeout=60000, wait_until="domcontentloaded")
                     netflix_page.wait_for_timeout(5000)
             except:
                 pass
@@ -220,7 +263,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 chrome_browser.close()
                 return True, {"links": netflix_links, "text": "لم يتم العثور على رابط epr."}
 
-            bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط بانتظار بطيء لمنع الشاشة البيضاء...")
+            bot.send_message(chat_id, f"🔗 تم إيجاد رابط إكمال التسجيل!\n`{epr_link}`\n\n⏳ جاري فتح الرابط بانتظار للتحميل...")
             
             # -------------------------------------------------------------
             # 🔥 المرحلة الثانية: فتح رابط epr وإكمال التسجيل 🔥
@@ -228,14 +271,12 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             signup_page = context.new_page()
             apply_stealth(signup_page)
             
-            # استخدام load لضمان عدم التقاط صورة إلا بعد تحميل الصفحة بالكامل
             safely_goto(signup_page, epr_link, timeout=60000)
             signup_page.wait_for_timeout(6000) 
 
-            # 🔥 الانتظار الذكي لزر Finish لمنع الشاشة البيضاء 🔥
+            # الانتظار الذكي لزر Finish لمنع الشاشة البيضاء
             finish_btn = signup_page.locator(':is(button, a):has-text("Finish"), :is(button, a):has-text("إكمال")').first
             try:
-                # ننتظر الزر حتى 20 ثانية، هذا يضمن أن الصورة [5] ستكون دائماً حقيقية وليست بيضاء
                 finish_btn.wait_for(state="visible", timeout=20000)
                 send_progress_photo(signup_page, chat_id, "📸 [5] تم تحميل رابط إكمال التسجيل بنجاح (ظهر الزر).")
                 
@@ -247,7 +288,6 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 signup_page.keyboard.press("Enter")
                 signup_page.wait_for_timeout(5000)
 
-            # تخطي صفحات Next
             for i in range(1, 4):
                 try:
                     next_btn_extra = signup_page.locator(':is(button, a):has-text("Next"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Continue")').first
@@ -352,7 +392,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                         
                     signup_page.wait_for_timeout(3000)
                     try:
-                        signup_page.reload(timeout=40000, wait_until="load")
+                        signup_page.reload(timeout=40000, wait_until="domcontentloaded")
                     except:
                         pass
                     signup_page.wait_for_timeout(4000)
@@ -441,6 +481,7 @@ def callback_listener(call):
     if not is_admin(user_id):
         return
 
+    # معالجة زر إلغاء العملية
     if call.data == "cancel_operation":
         if USER_STATE["waiting_for"] in ["phone", "otp"]:
             USER_STATE["cancel_flow"] = True
@@ -487,20 +528,28 @@ def callback_listener(call):
 
     elif call.data == "take_screenshot":
         bot.answer_callback_query(call.id, "جاري فتح صفحة جديدة...")
-        bot.edit_message_text("⏳ جاري الفتح...", chat_id, call.message.message_id)
         
         def process_screenshot():
-            url = "https://www.netflix.com/clearcookies"
-            for file_name in [USER_STATE["temp_session"], USER_STATE["temp_image"]]:
-                if os.path.exists(file_name): os.remove(file_name)
+            try:
+                url = "https://www.netflix.com/clearcookies"
+                for file_name in [USER_STATE["temp_session"], USER_STATE["temp_image"]]:
+                    if os.path.exists(file_name): os.remove(file_name)
+                    
+                photo_bytes, error_msg = take_screenshot_with_proxy(
+                    target_url=url, 
+                    chat_id=chat_id, 
+                    msg_id=call.message.message_id,
+                    session_file=USER_STATE["temp_session"], 
+                    image_file=USER_STATE["temp_image"]
+                )
                 
-            photo_bytes, error_msg = take_screenshot_with_proxy(url, session_file=USER_STATE["temp_session"], image_file=USER_STATE["temp_image"])
-            
-            if photo_bytes:
-                bot.delete_message(chat_id, call.message.message_id)
-                bot.send_photo(chat_id, photo_bytes, caption="✅ هل تريد التثبيت؟", reply_markup=photo_keyboard(is_viewing_pinned=False))
-            else:
-                bot.edit_message_text(f"❌ فشل:\n`{error_msg}`", chat_id, call.message.message_id, reply_markup=main_keyboard(), parse_mode="Markdown")
+                if photo_bytes:
+                    bot.delete_message(chat_id, call.message.message_id)
+                    bot.send_photo(chat_id, photo_bytes, caption="✅ هل تريد التثبيت؟", reply_markup=photo_keyboard(is_viewing_pinned=False))
+                else:
+                    bot.edit_message_text(f"❌ فشل:\n`{error_msg}`", chat_id, call.message.message_id, reply_markup=main_keyboard(), parse_mode="Markdown")
+            except Exception as e:
+                bot.edit_message_text(f"❌ حدث خطأ غير متوقع أثناء الفتح:\n`{str(e)}`", chat_id, call.message.message_id, reply_markup=main_keyboard())
                 
         threading.Thread(target=process_screenshot).start()
 
