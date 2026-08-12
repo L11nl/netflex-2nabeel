@@ -228,7 +228,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
             send_progress_photo(signup_page, chat_id, "📸 [5] تم فتح رابط إكمال التسجيل (EPR).")
 
             # 1. انتظار والضغط على Finish Sign-Up
-            finish_btn = signup_page.locator('button:has-text("Finish Sign-Up"), a:has-text("Finish Sign-Up"), text="Finish Sign-Up"').first
+            finish_btn = signup_page.locator('text="Finish Sign-Up"').first
             finish_btn.wait_for(state="visible", timeout=20000)
             finish_btn.click(timeout=10000)
             signup_page.wait_for_timeout(5000)
@@ -296,7 +296,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 send_progress_photo(signup_page, chat_id, "📸 [10] تم إدخال الرقم وتحديد مربع (I agree).")
                 
                 # 9. الضغط على Verify Phone Number
-                verify_btn = signup_page.locator('button:has-text("Verify Phone Number"), a:has-text("Verify Phone Number")').first
+                verify_btn = signup_page.locator('text="Verify Phone Number"').first
                 verify_btn.click(timeout=10000)
                 signup_page.wait_for_timeout(7000)
 
@@ -330,8 +330,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 if USER_STATE["change_phone"]:
                     bot.send_message(chat_id, "🔄 جاري العودة لصفحة رقم الهاتف لاستبداله...")
                     try:
-                        # نتفلكس عادة توفر زر Change
-                        change_btn = signup_page.locator('button:has-text("Change"), a:has-text("Change"), text="Change"').first
+                        change_btn = signup_page.locator('text="Change"').first
                         if change_btn.is_visible(timeout=3000):
                             change_btn.click()
                         else:
@@ -352,7 +351,7 @@ def execute_netflix_automation(session_file, image_file, email, chat_id):
                 
                 # 12. الضغط على Start Membership
                 try:
-                    start_membership = signup_page.locator('button:has-text("Start Membership"), a:has-text("Start Membership")').first
+                    start_membership = signup_page.locator('text="Start Membership"').first
                     start_membership.click(timeout=10000)
                 except Exception:
                     signup_page.keyboard.press("Enter")
