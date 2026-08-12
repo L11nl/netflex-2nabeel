@@ -9,6 +9,12 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from playwright.sync_api import sync_playwright
 
+# مكتبة التخفي
+try:
+    from playwright_stealth import stealth_sync
+except ImportError:
+    stealth_sync = None
+
 # --- إعدادات البيئة والتوكن ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ضع_توكن_البوت_هنا")
 ALLOWED_USER_ID = int(os.environ.get("ALLOWED_USER_ID", "643309456"))
@@ -36,6 +42,12 @@ def generate_random_email(length):
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     return f"{username}@5xu.vn"
 
+def apply_stealth(page):
+    if stealth_sync:
+        stealth_sync(page)
+    else:
+        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
 def safely_goto(page, url, timeout=40000):
     try:
         page.goto(url, timeout=timeout, wait_until="domcontentloaded")
@@ -55,7 +67,6 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
     for attempt in range(1, max_retries + 1):
         try:
             with sync_playwright() as p:
-                # 🔥 التغيير الجذري: استخدام Firefox للهروب من ريكابتشا 🔥
                 browser = p.firefox.launch(
                     headless=True,
                     proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
@@ -71,6 +82,7 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
                 
                 context = browser.new_context(**context_options)
                 page = context.new_page()
+                apply_stealth(page) 
                 
                 safely_goto(page, target_url)
                 screenshot_bytes = page.screenshot(full_page=False, timeout=20000)
@@ -86,147 +98,140 @@ def take_screenshot_with_proxy(target_url, session_file=None, image_file=None, m
         except Exception:
             time.sleep(2)
             
-    return None, "فشل الاتصال بالبروكسي تماماً."
+    return None, "فشل الاتصال بالبروكسي."
 
+# --- دالة الأتمتة (مثبتة على المسار الناجح فقط) ---
 def execute_netflix_automation(session_file, image_file, email, chat_id):
-    strategies = [
-        {"name": "فايرفوكس - صفحة Log in", "url": "https://www.netflix.com/login"},
-        {"name": "فايرفوكس - الصفحة الرئيسية", "url": "https://www.netflix.com/"}
-    ]
-    
-    success = False
-    
-    for strategy in strategies:
-        bot.send_message(chat_id, f"🔄 **جاري تجربة: {strategy['name']}**", parse_mode="Markdown")
-        
-        try:
-            with sync_playwright() as p:
-                # 🔥 استخدام محرك Firefox القوي ضد الكشف 🔥
-                browser = p.firefox.launch(
-                    headless=True,
-                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
-                )
+    try:
+        with sync_playwright() as p:
+            # استخدام Firefox المثبت نجاحه
+            browser = p.firefox.launch(
+                headless=True,
+                proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
+            )
+            
+            context_options = {
+                'viewport': {'width': 1280, 'height': 720},
+                'ignore_https_errors': True
+            }
                 
-                context_options = {
-                    'viewport': {'width': 1280, 'height': 720},
-                    'ignore_https_errors': True
-                }
-                    
-                if session_file and os.path.exists(session_file):
-                    context_options['storage_state'] = session_file
-                    
-                context = browser.new_context(**context_options)
-                netflix_page = context.new_page()
+            if session_file and os.path.exists(session_file):
+                context_options['storage_state'] = session_file
                 
-                safely_goto(netflix_page, strategy["url"])
-                send_progress_photo(netflix_page, chat_id, "📸 الصفحة بعد الفتح (فايرفوكس).")
+            context = browser.new_context(**context_options)
+            netflix_page = context.new_page()
+            apply_stealth(netflix_page)
+            
+            # --- الخطوة 1: الفتح ---
+            bot.send_message(chat_id, "⏳ جاري تنفيذ المسار الناجح (فايرفوكس المخفي)...")
+            safely_goto(netflix_page, "https://www.netflix.com/login")
+            send_progress_photo(netflix_page, chat_id, "📸 تم فتح صفحة نتفلكس.")
+            
+            # --- الخطوة 2: الإيميل ---
+            try:
+                email_input = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
+                if email_input.is_visible(timeout=5000):
+                    email_input.click()
+                    email_input.fill("")
+                    for char in email:
+                        email_input.press_sequentially(char, delay=random.randint(50, 150))
+                    netflix_page.wait_for_timeout(1000)
+            except:
+                pass
+            
+            try:
+                continue_btn = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Next"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Get Started"), :is(button, a):has-text("Days for USD 0")').first
+                if continue_btn.is_visible(timeout=3000):
+                    continue_btn.hover()
+                    netflix_page.wait_for_timeout(500)
+                    continue_btn.click(timeout=10000)
+                else:
+                    email_input.press("Enter")
+            except:
+                try: email_input.press("Enter")
+                except: pass
                 
+            netflix_page.wait_for_timeout(7000)
+            send_progress_photo(netflix_page, chat_id, "📸 الصفحة بعد إدخال الإيميل.")
+            
+            # معالجة الخطأ الأحمر إن ظهر
+            try:
+                error_msg = netflix_page.locator('text="Something went wrong"').first
+                if error_msg.is_visible(timeout=3000):
+                    bot.send_message(chat_id, "⚠️ ظهر الخطأ الأحمر، جاري تحديث الصفحة للمحاولة مرة أخرى...")
+                    netflix_page.reload(timeout=60000, wait_until="domcontentloaded")
+                    netflix_page.wait_for_timeout(5000)
+            except:
+                pass
+                
+            # --- الخطوة 3: التحقق من النجاح وتخطي الصفحات ---
+            for i in range(1, 5):
                 try:
-                    email_input = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
-                    if email_input.is_visible(timeout=5000):
-                        email_input.click()
-                        email_input.fill("")
-                        for char in email:
-                            email_input.press_sequentially(char, delay=random.randint(50, 150))
-                        netflix_page.wait_for_timeout(1000)
-                except:
-                    pass
-                
-                try:
-                    continue_btn = netflix_page.locator(':is(button, a):has-text("Continue"), :is(button, a):has-text("Next"), :is(button, a):has-text("متابعة"), :is(button, a):has-text("التالي"), :is(button, a):has-text("Get Started"), :is(button, a):has-text("Days for USD 0")').first
-                    if continue_btn.is_visible(timeout=3000):
-                        continue_btn.hover()
-                        netflix_page.wait_for_timeout(500)
-                        continue_btn.click(timeout=10000)
-                    else:
-                        email_input.press("Enter")
-                except:
-                    try: email_input.press("Enter")
+                    # 🔥 تم إضافة الكلمات الجديدة من صورتك للتعرف على النجاح فوراً 🔥
+                    success_target = netflix_page.locator(':is(:text("Tap the link in your email")), :is(:text("resend it")), :is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
+                    
+                    if success_target.is_visible(timeout=4000):
+                        bot.send_message(chat_id, "✅ ممتاز! وصلنا لصفحة (Tap the link in your email)، وتم إرسال الرسالة بنجاح.")
+                        send_progress_photo(netflix_page, chat_id, "📸 صورة صفحة النجاح النهائية.")
+                        break # نكسر الحلقة للذهاب للبريد
+                        
+                    # إذا طلب الإيميل مجدداً
+                    try:
+                        email_input_again = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
+                        if email_input_again.is_visible(timeout=2000) and not email_input_again.input_value():
+                            email_input_again.click()
+                            email_input_again.type(email, delay=100)
+                            netflix_page.wait_for_timeout(1000)
                     except: pass
                     
-                netflix_page.wait_for_timeout(7000)
-                send_progress_photo(netflix_page, chat_id, "📸 الصفحة بعد ضغط الاستمرار.")
-                
-                try:
-                    error_msg = netflix_page.locator('text="Something went wrong"').first
-                    if error_msg.is_visible(timeout=3000):
-                        bot.send_message(chat_id, "⚠️ ظهر الخطأ الأحمر حتى مع فايرفوكس. ننتقل للاستراتيجية البديلة...")
-                        browser.close()
-                        continue 
-                except:
-                    pass
+                    # الضغط على زر المتابعة إن وجد
+                    next_btn = netflix_page.locator(':is(button, a):has-text("Send Link"), :is(button, a):has-text("إرسال الرابط"), :is(button, a):has-text("Next"), :is(button, a):has-text("Continue"), :is(button, a):has-text("التالي"), :is(button, a):has-text("متابعة")').first
                     
-                for i in range(1, 4):
-                    try:
-                        resend_btn = netflix_page.locator(':is(button, a):has-text("Resend Link"), :is(button, a):has-text("إعادة إرسال")').first
-                        if resend_btn.is_visible(timeout=3000):
-                            bot.send_message(chat_id, f"✅ نجحت الاستراتيجية! تم الوصول لصفحة الإرسال.")
-                            success = True
-                            break
-                            
-                        try:
-                            email_input_again = netflix_page.locator("input[name='email'], input[name='userLoginId'], input[type='email']").first
-                            if email_input_again.is_visible(timeout=2000) and not email_input_again.input_value():
-                                email_input_again.click()
-                                email_input_again.type(email, delay=100)
-                                netflix_page.wait_for_timeout(1000)
-                        except: pass
-                        
-                        next_btn = netflix_page.locator(':is(button, a):has-text("Send Link"), :is(button, a):has-text("إرسال الرابط"), :is(button, a):has-text("Next"), :is(button, a):has-text("Continue"), :is(button, a):has-text("التالي"), :is(button, a):has-text("متابعة")').first
-                        
-                        if next_btn.is_visible(timeout=4000):
-                            next_btn.click(timeout=10000)
-                            netflix_page.wait_for_timeout(6000)
-                            send_progress_photo(netflix_page, chat_id, f"📸 تخطي صفحة فرعية...")
-                        else:
-                            break 
-                    except Exception:
-                        break
-                
-                if success:
-                    browser.close()
+                    if next_btn.is_visible(timeout=4000):
+                        next_btn.click(timeout=10000)
+                        netflix_page.wait_for_timeout(6000)
+                        send_progress_photo(netflix_page, chat_id, f"📸 تخطي صفحة فرعية...")
+                    else:
+                        break 
+                except Exception:
                     break
-                else:
-                    browser.close()
-                    
-        except Exception as e:
-            bot.send_message(chat_id, f"فشلت هذه الاستراتيجية، ننتقل للتي تليها...")
+            
+            # --- الخطوة 4: صندوق البريد ---
+            bot.send_message(chat_id, "⏳ ننتقل الآن للبريد الوارد لانتظار الرسالة...")
+            
+            # نعود لكروم في البريد لسرعته
+            chrome_browser = p.chromium.launch(
+                headless=True,
+                proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
+            )
+            chrome_context = chrome_browser.new_context()
+            email_page = chrome_context.new_page()
+            apply_stealth(email_page)
+            
+            safely_goto(email_page, f"https://generator.email/inbox9/{email}", timeout=60000)
+            email_page.wait_for_timeout(12000) 
+            
+            send_progress_photo(email_page, chat_id, "📸 صندوق البريد بعد الانتظار.")
+            
+            links = email_page.evaluate("""() => {
+                return Array.from(document.querySelectorAll('a')).map(a => a.href);
+            }""")
+            netflix_links = list(set([l for l in links if 'netflix.com' in l and 'nflx' not in l]))
+            
+            try:
+                text_content = email_page.locator("body").inner_text()
+                extracted_text = text_content[:500] + "..."
+            except:
+                extracted_text = "تعذر استخراج النص."
 
-    if success:
-        try:
-            with sync_playwright() as p:
-                # نعود لاستخدام كروم لفتح البريد لأنه أسرع ولا يحتاج تخفي
-                browser = p.chromium.launch(
-                    headless=True,
-                    proxy={"server": PROXY_SERVER, "username": PROXY_USERNAME, "password": PROXY_PASSWORD}
-                )
-                context = browser.new_context()
-                email_page = context.new_page()
-                
-                bot.send_message(chat_id, "⏳ ننتقل الآن للبريد الوارد لانتظار الرسالة...")
-                safely_goto(email_page, f"https://generator.email/inbox9/{email}", timeout=60000)
-                email_page.wait_for_timeout(12000) 
-                
-                send_progress_photo(email_page, chat_id, "📸 صندوق البريد بعد الانتظار.")
-                
-                links = email_page.evaluate("""() => {
-                    return Array.from(document.querySelectorAll('a')).map(a => a.href);
-                }""")
-                netflix_links = list(set([l for l in links if 'netflix.com' in l and 'nflx' not in l]))
-                
-                try:
-                    text_content = email_page.locator("body").inner_text()
-                    extracted_text = text_content[:500] + "..."
-                except:
-                    extracted_text = "تعذر استخراج النص."
+            browser.close()
+            chrome_browser.close()
+            return True, {"links": netflix_links, "text": extracted_text}
+            
+    except Exception as e:
+        return False, f"خطأ: {str(e)}"
 
-                browser.close()
-                return True, {"links": netflix_links, "text": extracted_text}
-        except Exception as e:
-            return False, f"خطأ في البريد: {str(e)}"
-    else:
-        return False, "❌ فشلت جميع المحاولات حتى مع فايرفوكس.\n\n**السبب المؤكد 100%:** البروكسي (DataImpulse) يقوم بتغيير الـ IP أثناء انتقالك بين الصفحات، مما يجعل نتفلكس ترفض الطلب فوراً للحماية. لحل هذه المشكلة جذرياً، يجب استخدام بروكسي يمتلك ميزة (Sticky Session / آيبي ثابت للجلسة)."
-
+# --- القوائم السفلية ---
 def main_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
@@ -237,7 +242,7 @@ def main_keyboard():
         btn_screenshot_new = InlineKeyboardButton("📸 فتح صفحة جديدة (منفصلة)", callback_data="take_screenshot")
         btn_screenshot_pinned = InlineKeyboardButton("📌 عرض الصفحة المثبتة", callback_data="view_pinned_page")
         
-        btn_auto = InlineKeyboardButton("🚀 بدء نظام الاستراتيجيات المتعددة", callback_data="start_auto")
+        btn_auto = InlineKeyboardButton("🚀 إدخال الإيميل وجلب الروابط", callback_data="start_auto")
         btn_length_info = InlineKeyboardButton(f"طول الإيميل: {USER_STATE['email_length']}", callback_data="none")
         btn_plus = InlineKeyboardButton("➕ زيادة", callback_data="inc_email")
         btn_minus = InlineKeyboardButton("➖ تقليل", callback_data="dec_email")
@@ -311,7 +316,7 @@ def callback_listener(call):
 
     elif call.data == "take_screenshot":
         bot.answer_callback_query(call.id, "جاري فتح صفحة جديدة...")
-        bot.edit_message_text("⏳ جاري الفتح بقوة (متجاهلاً مهلة الانتظار)...", chat_id, call.message.message_id)
+        bot.edit_message_text("⏳ جاري الفتح بقوة...", chat_id, call.message.message_id)
         
         def process_screenshot():
             url = "https://www.netflix.com/clearcookies"
